@@ -1,21 +1,19 @@
-# Review the instance and persistent-disk prices in Render before creating resources.
-# A free ephemeral web instance must not be used for this SQLite database.
+# Free web instance; account/task storage must use an independent PostgreSQL database.
+# Enter DATABASE_URL securely in Render. It must never be committed or sent in chat.
 services:
   - type: web
     name: qiyu-ddl
     runtime: docker
     branch: qiyu-ddl
     region: singapore
-    plan: starter
+    plan: free
     healthCheckPath: /api/health
-    disk:
-      name: qiyu-data
-      mountPath: /app/data
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATA_DIR
-        value: /app/data
       - key: TRUST_PROXY
         value: '1'
+      - key: REQUIRE_DATABASE_URL
+        value: 'true'
+      - key: DATABASE_URL
+        sync: false

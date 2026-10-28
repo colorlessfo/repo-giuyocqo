@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import pg from 'pg';
+import { postgresOptions } from '../server/database.mjs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -18,13 +20,22 @@ const task = {
 };
 async function setup(t, disableRateLimit = true) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'qiyu-api-'));
-  const { app, db } = await createApp({ dataDir, disableRateLimit });
+  const databaseUrl = process.env.QIYU_TEST_DATABASE_URL_FILE
+    ? JSON.parse(await readFile(process.env.QIYU_TEST_DATABASE_URL_FILE, 'utf8')).url
+    : null;
+  const databaseSchema = `qiyu_test_${randomUUID().replaceAll('-', '')}`;
+  const { app, db } = await createApp({ dataDir, databaseUrl, databaseSchema, disableRateLimit });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.on('listening', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
-    db.close();
+    await db.close();
+    if (databaseUrl) {
+      const admin = new pg.Pool(postgresOptions(databaseUrl));
+      await admin.query(`DROP SCHEMA IF EXISTS "${databaseSchema}" CASCADE`);
+      await admin.end();
+    }
     await rm(dataDir, { recursive: true, force: true });
   });
   const request = async (url, body, cookie = '', headers = {}) => {
@@ -48,7 +59,7 @@ async function setup(t, disableRateLimit = true) {
     request('/api/auth/register', { email, password: 'test-password-123', name: '测试同学' });
   const mutate = (cookie, changes, mutationId = randomUUID()) =>
     request('/api/changes', { mutationId, changes }, cookie);
-  return { request, register, mutate, db, dataDir };
+  return { request, register, mutate, db, dataDir, databaseUrl, databaseSchema };
 }
 test('independent accounts, durable sessions, and no unauthenticated reads', async (t) => {
   const { request, register, mutate } = await setup(t);
@@ -278,4 +289,109 @@ test('login endpoint enforces server-side rate limiting', async (t) => {
     ).status,
     429,
   );
+});
+test('accounts need no email or phone and normalized usernames stay unique', async (t) => {
+  const { request } = await setup(t);
+  const created = await request('/api/auth/register', {
+    account: '奇遇_同学001',
+    password: 'a-long-account-password',
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.user.account, '奇遇_同学001');
+  assert.equal(created.body.user.email, null);
+  assert.equal(
+    (
+      await request('/api/auth/login', {
+        account: '奇遇_同学001',
+        password: 'a-long-account-password',
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await request('/api/auth/register', {
+        account: '奇遇_同学001',
+        password: 'different-password',
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (await request('/api/auth/register', { account: 'x', password: 'different-password' })).status,
+    400,
+  );
+  assert.equal(
+    (
+      await request('/api/auth/register', {
+        account: 'name with spaces',
+        password: 'different-password',
+      })
+    ).status,
+    400,
+  );
+  await request('/api/auth/register', { account: 'ABC_123', password: 'a-long-account-password' });
+  assert.equal(
+    (await request('/api/auth/register', { account: 'ＡＢＣ_123', password: 'different-password' }))
+      .status,
+    409,
+  );
+});
+test('simultaneous writes stay atomic and simultaneous retries only apply once', async (t) => {
+  const { register, mutate } = await setup(t);
+  const { cookie } = await register('races@example.com');
+  const changes = [{ collection: 'tasks', id: 'race', expectedVersion: 0, data: task }];
+  const mutationId = randomUUID();
+  const results = await Promise.all([
+    mutate(cookie, changes, mutationId),
+    mutate(cookie, changes, mutationId),
+  ]);
+  assert.deepEqual(
+    results.map((r) => r.status),
+    [200, 200],
+  );
+  assert.equal(results[1].body.tasks[0].version, 1);
+  const edits = await Promise.all(
+    ['one', 'two'].map((title) =>
+      mutate(cookie, [
+        { collection: 'tasks', id: 'race', expectedVersion: 1, data: { ...task, title } },
+      ]),
+    ),
+  );
+  assert.deepEqual(edits.map((r) => r.status).sort(), [200, 409]);
+});
+test('new application instances retain accounts, sessions and task data', async (t) => {
+  const { register, mutate, dataDir, databaseUrl, databaseSchema } = await setup(t);
+  const account = await register('restart@example.com');
+  await mutate(account.cookie, [
+    { collection: 'tasks', id: 'keep', expectedVersion: 0, data: task },
+  ]);
+  const second = await createApp({ dataDir, databaseUrl, databaseSchema, disableRateLimit: true });
+  const server = second.app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.on('listening', resolve));
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/state`, {
+      headers: { Cookie: account.cookie },
+    });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).tasks[0].title, task.title);
+    const update = (title) => ({
+      collection: 'tasks',
+      id: 'keep',
+      expectedVersion: 1,
+      data: { ...task, title },
+    });
+    const races = await Promise.all([
+      mutate(account.cookie, [update('first app')]),
+      fetch(`http://127.0.0.1:${server.address().port}/api/changes`, {
+        method: 'POST',
+        headers: { Cookie: account.cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mutationId: randomUUID(), changes: [update('second app')] }),
+      }),
+    ]);
+    assert.deepEqual(races.map((r) => r.status).sort(), [200, 409]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await second.db.close();
+  }
 });

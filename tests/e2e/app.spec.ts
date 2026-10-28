@@ -4,6 +4,17 @@ import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
 
 const password = 'qiyu-test-password-2026';
+function shanghaiDay(offset = 0, clock = '12:00') {
+  const key = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const date = new Date(`${key}T${clock}:00+08:00`);
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date;
+}
 // Each isolated device/test has its own proxied client address. Production limits stay enabled.
 const test = base.extend({
   extraHTTPHeaders: async ({}, use) => {
@@ -14,12 +25,12 @@ const test = base.extend({
   },
 });
 async function register(context: BrowserContext) {
-  const email = `${randomUUID()}@example.com`;
+  const account = `user_${randomUUID().slice(0, 18).replaceAll('-', '_')}`;
   const response = await context.request.post('/api/auth/register', {
-    data: { email, password, name: '奇遇同学' },
+    data: { account, password, name: '奇遇同学' },
   });
   expect(response.status()).toBe(201);
-  return email;
+  return account;
 }
 async function state(page: Page) {
   const response = await page.request.get('/api/state');
@@ -27,9 +38,7 @@ async function state(page: Page) {
   return response.json();
 }
 async function createTask(page: Page, overrides: Record<string, unknown> = {}) {
-  const due = new Date();
-  due.setDate(due.getDate() + 1);
-  due.setHours(12, 0, 0, 0);
+  const due = shanghaiDay(1);
   const id = randomUUID();
   const data = {
     title: '需要认真完成的报告',
@@ -89,8 +98,9 @@ test('register through the UI, create a long task, edit, complete and reopen it'
   await page.goto('/');
   await page.getByRole('button', { name: '登录 / 注册', exact: true }).click();
   await page.getByRole('button', { name: '创建账号', exact: true }).click();
-  await page.getByLabel('怎么称呼你').fill('奇遇同学');
-  await page.getByLabel('邮箱', { exact: true }).fill(`${randomUUID()}@example.com`);
+  await expect(page.getByLabel('邮箱', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('手机号', { exact: true })).toHaveCount(0);
+  await page.getByLabel('账号', { exact: true }).fill(`奇遇_${randomUUID().slice(0, 12)}`);
   await page.getByLabel('密码', { exact: true }).fill(password);
   await page.getByRole('button', { name: '注册并开始安排', exact: true }).click();
   await waitForSaved(page);
@@ -148,14 +158,14 @@ test('two devices synchronize, another account is isolated, offline edits retry'
   context,
   page,
 }) => {
-  const email = await register(context);
+  const account = await register(context);
   const device2 = await browser.newContext({
     baseURL: 'http://127.0.0.1:3100',
     timezoneId: 'Asia/Shanghai',
   });
   const other = await browser.newContext({ baseURL: 'http://127.0.0.1:3100' });
   try {
-    const login = await device2.request.post('/api/auth/login', { data: { email, password } });
+    const login = await device2.request.post('/api/auth/login', { data: { account, password } });
     expect(login.ok()).toBeTruthy();
     await register(other);
     const second = await device2.newPage();
@@ -316,15 +326,13 @@ test('long tasks display every visible day, courses remain separate and can be h
   page,
 }) => {
   await register(context);
-  const end = new Date();
-  end.setDate(end.getDate() + 2);
-  end.setHours(10, 0, 0, 0);
+  const end = shanghaiDay(2, '10:00');
   const task = await createTask(page, {
     title: '跨三天的任务',
     dueAt: end.toISOString(),
     durationMinutes: 3000,
   });
-  const weekday = ((new Date().getDay() + 6) % 7) + 1;
+  const weekday = ((shanghaiDay().getUTCDay() + 6) % 7) + 1;
   const course = {
     title: '单周课程',
     weekday,

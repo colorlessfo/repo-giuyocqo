@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowRight, Mail, ShieldCheck } from 'lucide-react';
+import { ArrowRight, UserRound, ShieldCheck } from 'lucide-react';
 import { Field, Mascot, Modal } from './ui';
 import { api } from './store';
 import type { User } from './types';
@@ -11,9 +11,8 @@ export default function Auth({
   onLogin: (user: User) => void;
 }) {
   const [register, setRegister] = useState(false);
-  const [email, setEmail] = useState('');
+  const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
@@ -39,7 +38,7 @@ export default function Auth({
           try {
             const result = await api<{ user: User }>(
               register ? '/api/auth/register' : '/api/auth/login',
-              { email, password, ...(register ? { name } : {}) },
+              { account, password },
             );
             onLogin(result.user);
           } catch (e) {
@@ -49,32 +48,26 @@ export default function Auth({
           }
         }}
       >
-        {register && (
-          <Field label="怎么称呼你">
-            <input
-              required
-              maxLength={40}
-              autoComplete="nickname"
-              placeholder="你的名字"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </Field>
-        )}
-        <Field label="邮箱">
+        <Field
+          label="账号"
+          hint={register ? '3–40 位，可用中文、英文、数字、下划线、点或短横线。' : undefined}
+        >
           <input
             required
-            type="email"
-            maxLength={254}
-            autoComplete="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            type="text"
+            minLength={3}
+            maxLength={register ? 40 : 254}
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
+            placeholder={register ? '给自己起一个账号名' : '输入账号，原邮箱账号也可使用'}
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
           />
         </Field>
         <Field
           label="密码"
-          hint={register ? '至少 10 位。尚未开通邮件找回，请妥善保管。' : undefined}
+          hint={register ? '至少 10 位。没有短信或邮箱找回，请妥善保管。' : undefined}
         >
           <input
             required
@@ -93,7 +86,7 @@ export default function Auth({
           </p>
         )}
         <button disabled={busy} className="button primary full-width" type="submit">
-          <Mail size={18} />
+          <UserRound size={18} />
           {busy ? '正在连接…' : register ? '注册并开始安排' : '登录奇遇 DDL'}
           <ArrowRight size={18} />
         </button>
@@ -112,7 +105,7 @@ export default function Auth({
       </p>
       <div className="auth-note">
         <ShieldCheck size={16} />
-        <span>当前支持邮箱与密码。手机号验证码尚未接通。</span>
+        <span>只需账号和密码，无需手机号、邮箱或验证码。</span>
       </div>
     </Modal>
   );

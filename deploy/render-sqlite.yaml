@@ -1,0 +1,22 @@
+# Optional paid route, only after confirming the current instance and disk prices.
+services:
+  - type: web
+    name: qiyu-ddl
+    runtime: docker
+    branch: qiyu-ddl
+    region: singapore
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: qiyu-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /app/data
+      - key: TRUST_PROXY
+        value: '1'
+      - key: ALLOW_PERSISTENT_SQLITE
+        value: 'true'

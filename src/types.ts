@@ -56,7 +56,8 @@ export interface Change {
 }
 export interface User {
   id: string;
-  email: string;
+  account: string;
+  email?: string | null;
   name: string;
 }
 export interface Mutation {

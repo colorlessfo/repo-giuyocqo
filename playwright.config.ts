@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
@@ -30,6 +30,11 @@ export default defineConfig({
       'npm run build && NODE_ENV=production PORT=3100 TRUST_PROXY=1 COOKIE_SECURE=false DATA_DIR=/tmp/qiyu-ddl-e2e node server/index.mjs',
     url: 'http://127.0.0.1:3100/api/health',
     reuseExistingServer: false,
+    env: {
+      DATABASE_URL: process.env.QIYU_TEST_DATABASE_URL_FILE
+        ? JSON.parse(readFileSync(process.env.QIYU_TEST_DATABASE_URL_FILE, 'utf8')).url
+        : '',
+    },
     timeout: 90000,
   },
 });

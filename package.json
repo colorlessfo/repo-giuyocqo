@@ -26,6 +26,7 @@
     "express-rate-limit": "^8.7.1",
     "helmet": "^8.3.0",
     "lucide-react": "^1.62.0",
+    "pg": "^8.23.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "tesseract.js": "^7.0.0",

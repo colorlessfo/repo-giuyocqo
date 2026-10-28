@@ -799,7 +799,7 @@ export default function App() {
       {panel === 'account' && user && (
         <Modal
           title={`你好，${user.name}`}
-          description={`${user.email} · 密码已加密保存。当前尚未开通邮箱验证与密码找回。`}
+          description={`${user.account || user.email} · 无需绑定手机或邮箱。请妥善保管密码，当前不提供密码找回。`}
           onClose={() => setPanel(null)}
         >
           <form
@@ -895,7 +895,9 @@ export default function App() {
             <p>
               个人待办以 DDL 为结束时间，按计划用时向前安排。课程按学期、教学周和单双周单独计算。
             </p>
-            <p>当前支持独立邮箱密码账号及服务器同步；手机号验证码、邮箱验证和找回密码尚未开通。</p>
+            <p>
+              使用自定义账号和密码注册、登录，不需要手机、邮箱或验证码；当前不提供密码找回，请妥善保管密码。
+            </p>
             <p>
               网页内提供倒计时和逾期提示。关闭网页后不会推送系统通知；可以从“备份与日历导出”下载日历文件，提醒效果由你的日历应用决定。
             </p>
