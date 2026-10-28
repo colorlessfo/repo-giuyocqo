@@ -1,0 +1,9 @@
+.git
+node_modules
+data
+dist
+public/ocr
+test-results
+.env
+*.tsbuildinfo
+*.traineddata

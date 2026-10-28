@@ -1,0 +1,21 @@
+# Review the instance and persistent-disk prices in Render before creating resources.
+# A free ephemeral web instance must not be used for this SQLite database.
+services:
+  - type: web
+    name: qiyu-ddl
+    runtime: docker
+    branch: qiyu-ddl
+    region: singapore
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: qiyu-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /app/data
+      - key: TRUST_PROXY
+        value: '1'

@@ -1,0 +1,13 @@
+services:
+  qiyu:
+    build: .
+    restart: unless-stopped
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:?Set PUBLIC_URL to your public HTTPS origin}
+      TRUST_PROXY: '1'
+    volumes:
+      - qiyu-data:/app/data
+    ports:
+      - '127.0.0.1:3000:3000'
+volumes:
+  qiyu-data:

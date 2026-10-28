@@ -1,0 +1,553 @@
+/* Functional text stays readable on both narrow and wide screens. */
+:root {
+  --muted: #7c7187;
+}
+.sidebar-caption {
+  color: #817589;
+  font-size: 13px;
+}
+.sidebar-settings {
+  color: #817389;
+  font-size: 13px;
+}
+.sidebar-art p {
+  color: #887695;
+  font-size: 14px;
+}
+.sidebar-import {
+  color: #93776e;
+  font-size: 14px;
+}
+.main-nav button {
+  font-size: 17px;
+}
+.category-nav button {
+  font-size: 16px;
+}
+.topbar-right .today-date,
+.breadcrumb,
+.account-button,
+.sync-indicator {
+  font-size: 14px;
+  color: #82748e;
+}
+.demo-banner,
+.demo-banner .text-button {
+  font-size: 13px;
+  color: #8b745f;
+}
+.page-intro p {
+  font-size: 17px;
+  color: #82758e;
+}
+.tabs button {
+  font-size: 17px;
+}
+.list-tools select,
+.search input {
+  font-size: 14px;
+  color: #87758f;
+}
+.task-title {
+  font-size: 21px;
+  color: #534b63;
+}
+.task-meta {
+  font-size: 14px;
+  color: #7e718a;
+  gap: 10px;
+  row-gap: 6px;
+}
+.category-tag {
+  font-size: 12px;
+  color: #80629f;
+  background: #e8def3;
+}
+.category-tag.blue {
+  color: #577c9f;
+  background: #dfe9f3;
+}
+.category-tag.peach {
+  color: #9f6e51;
+  background: #f1e1d5;
+}
+.category-tag.rose {
+  color: #9e637e;
+  background: #efdee7;
+}
+.category-tag.slate {
+  color: #747386;
+  background: #e7e5eb;
+}
+.task-note {
+  font-size: 14px;
+  color: #92849f;
+  line-height: 1.7;
+  margin-top: 8px;
+}
+.countdown {
+  font-size: 14px;
+  color: #8b72a3;
+  min-width: 120px;
+}
+.countdown.soon {
+  color: #9f794f;
+}
+.countdown.overdue {
+  color: #b66b76;
+}
+.list-foot {
+  font-size: 12px;
+  color: #9d8ca9;
+}
+.tiny-flower {
+  color: #a391ba;
+}
+.section-heading .eyebrow {
+  color: #8f7e9e;
+  font-size: 9px;
+}
+.schedule-actions .button {
+  font-size: 14px;
+  color: #8d73a5;
+  min-height: 44px;
+}
+.date-navigation strong {
+  font-size: 16px;
+  color: #806b93;
+}
+.date-navigation .text-button,
+.legend {
+  font-size: 14px;
+  color: #927ca6;
+}
+.schedule-controls .button.small {
+  font-size: 13px !important;
+  min-height: 42px !important;
+}
+.schedule-hint {
+  font-size: 13px;
+  color: #8f7b9f;
+  line-height: 1.7;
+}
+.schedule-days > div {
+  font-size: 14px;
+  color: #9b86af;
+}
+.time-gutter > span {
+  font-size: 12px;
+  color: #9f8caf;
+  left: 8px;
+}
+.schedule-block {
+  color: #8561a6;
+  padding: 8px;
+  gap: 6px;
+}
+.schedule-block.course {
+  color: #597f9f;
+}
+.schedule-block strong {
+  font-size: 14px;
+  line-height: 1.55;
+}
+.schedule-block small {
+  font-size: 11px;
+}
+.block-label {
+  font-size: 10px;
+}
+.rest-zone {
+  font-size: 10px;
+  color: #9b84ad;
+}
+.schedule-footnote {
+  font-size: 12px;
+  color: #9a83aa;
+}
+.schedule-inner {
+  min-width: 1020px;
+}
+.floating-island {
+  height: 49px;
+}
+.island-task {
+  font-size: 14px;
+  max-width: 220px;
+  color: #8d6ea8;
+}
+.island-time {
+  font-size: 12px;
+  color: #a084b7;
+}
+.field > span {
+  font-size: 16px;
+  color: #7b658e;
+}
+.field input,
+.field select,
+.field textarea {
+  font-size: 18px;
+  color: #755b8a;
+}
+.field > small {
+  font-size: 13px;
+  color: #9681a7;
+}
+.modal-description {
+  font-size: 15px;
+  color: #9a82ad;
+}
+.auth-note {
+  font-size: 13px;
+  color: #9c82b0;
+  line-height: 1.8;
+}
+.info-note {
+  font-size: 14px;
+  color: #9276a7;
+}
+.small-text {
+  font-size: 15px;
+}
+.course-card p {
+  font-size: 15px;
+  color: #7c98b5;
+}
+.course-card small {
+  font-size: 14px;
+  color: #8199b4;
+}
+.semester-note strong {
+  font-size: 16px;
+  color: #8b6aa4;
+}
+.semester-note small {
+  font-size: 13px;
+  color: #9a80ae;
+}
+.draft-grid .field > span {
+  font-size: 14px;
+  color: #9d7db4;
+}
+.draft-grid .field input,
+.draft-grid .field select {
+  font-size: 16px;
+}
+.review-heading p {
+  font-size: 14px;
+  color: #9d81b1;
+}
+.reviewed-label {
+  font-size: 14px;
+  color: #9d79b8;
+}
+.period-row input {
+  font-size: 15px;
+}
+.page-footer,
+.page-footer .text-button {
+  font-size: 12px;
+  color: #a18bad;
+}
+.footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+@media (max-width: 1250px) {
+  .task-title {
+    font-size: 20px;
+  }
+  .task-meta {
+    font-size: 13px;
+  }
+  .task-note {
+    font-size: 13px;
+  }
+  .countdown {
+    font-size: 13px;
+    min-width: 108px;
+  }
+  .task-meta .meta-separator {
+    display: none;
+  }
+  .task-right {
+    gap: 8px;
+  }
+  .sidebar-settings {
+    font-size: 12px;
+  }
+  .sidebar-import {
+    font-size: 12px;
+  }
+}
+@media (max-width: 960px) {
+  .main-nav button {
+    font-size: 15px;
+  }
+  .category-nav button {
+    font-size: 14px;
+  }
+  .sidebar-caption {
+    font-size: 12px;
+  }
+  .sidebar-settings {
+    font-size: 11px;
+  }
+  .sidebar-import {
+    font-size: 11px;
+  }
+  .demo-banner,
+  .demo-banner .text-button {
+    font-size: 12px;
+  }
+  .page-intro p {
+    font-size: 15px;
+  }
+  .task-title {
+    font-size: 20px;
+  }
+  .task-meta {
+    font-size: 13px;
+  }
+  .task-note {
+    font-size: 13px;
+  }
+  .task-row {
+    position: relative;
+    padding-top: 23px;
+    padding-bottom: 42px;
+    align-items: flex-start;
+  }
+  .task-checkbox {
+    margin-top: 7px;
+  }
+  .task-right {
+    position: absolute;
+    bottom: 13px;
+    right: 0;
+    padding-top: 0;
+  }
+  .countdown {
+    font-size: 12px;
+    min-width: 0;
+  }
+  .schedule-hint {
+    font-size: 12px;
+  }
+  .schedule-footnote {
+    font-size: 11px;
+  }
+}
+@media (max-width: 700px) {
+  .topbar-right .account-button {
+    font-size: 12px;
+  }
+  .demo-banner,
+  .demo-banner .text-button {
+    font-size: 11px;
+  }
+  .page-intro p {
+    font-size: 15px;
+  }
+  .page-intro h1 {
+    font-size: 32px;
+  }
+  .page-intro > .button {
+    font-size: 14px;
+  }
+  .main-nav button {
+    font-size: 15px;
+  }
+  .tabs button {
+    font-size: 16px;
+  }
+  .list-tools select {
+    font-size: 12px;
+    max-width: 94px;
+  }
+  .task-row {
+    min-height: 146px;
+    padding: 22px 0 39px;
+  }
+  .task-copy {
+    flex: 1;
+  }
+  .task-title {
+    font-size: 21px;
+    padding-right: 0;
+    line-height: 1.6;
+  }
+  .task-meta {
+    font-size: 13px;
+    gap: 8px;
+  }
+  .category-tag {
+    font-size: 12px;
+  }
+  .task-note {
+    font-size: 13px;
+    color: #9884a6;
+    margin-top: 10px;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+  }
+  .task-right {
+    max-width: none;
+    bottom: 11px;
+    right: 0;
+    align-self: auto;
+  }
+  .countdown {
+    font-size: 12px;
+    max-width: none;
+  }
+  .list-foot {
+    font-size: 11px;
+    line-height: 1.9;
+  }
+  .list-foot .text-button {
+    font-size: 12px;
+  }
+  .section-heading h2 {
+    font-size: 24px;
+  }
+  .section-heading .eyebrow {
+    font-size: 7px;
+  }
+  .schedule-actions .button {
+    font-size: 12px;
+    min-height: 44px;
+    padding: 9px;
+    gap: 5px;
+  }
+  .schedule-controls .legend {
+    font-size: 13px;
+    min-height: 44px;
+  }
+  .schedule-controls .legend input {
+    width: 16px;
+    height: 16px;
+    min-height: 16px;
+  }
+  .schedule-controls .button.small {
+    font-size: 13px !important;
+    min-height: 44px !important;
+  }
+  .schedule-hint {
+    font-size: 12px;
+  }
+  .schedule-footnote {
+    font-size: 10px;
+  }
+  .time-gutter > span {
+    font-size: 11px;
+    left: 5px;
+  }
+  .schedule-days > div {
+    font-size: 14px;
+  }
+  .floating-island {
+    height: 45px;
+  }
+  .island-task {
+    font-size: 12px;
+    max-width: 120px;
+  }
+  .island-time {
+    font-size: 10px;
+  }
+  .field > span {
+    font-size: 16px;
+  }
+  .field input,
+  .field select,
+  .field textarea {
+    font-size: 18px;
+  }
+  .modal-description {
+    font-size: 14px;
+  }
+  .field > small {
+    font-size: 12px;
+  }
+  .auth-note {
+    font-size: 12px;
+  }
+  .info-note {
+    font-size: 14px;
+  }
+  .small-text {
+    font-size: 14px;
+  }
+  .about-content {
+    font-size: 16px;
+  }
+  .page-footer,
+  .page-footer .text-button {
+    font-size: 10px;
+  }
+  .page-footer {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .footer-actions {
+    gap: 20px;
+  }
+  .semester-note strong {
+    font-size: 14px;
+  }
+  .semester-note small {
+    font-size: 12px;
+  }
+  .draft-grid .field > span {
+    font-size: 14px;
+  }
+  .draft-grid .field input,
+  .draft-grid .field select {
+    font-size: 17px;
+  }
+  .review-heading p {
+    font-size: 13px;
+  }
+  .reviewed-label {
+    font-size: 14px;
+  }
+  .period-row input {
+    font-size: 13px;
+  }
+}
+@media (max-width: 365px) {
+  .page-intro h1 {
+    font-size: 30px;
+  }
+  .page-intro > .button {
+    font-size: 13px;
+  }
+  .demo-banner,
+  .demo-banner .text-button {
+    font-size: 10px;
+  }
+  .task-title {
+    font-size: 20px;
+  }
+  .task-meta {
+    font-size: 12px;
+  }
+  .island-task {
+    max-width: 100px;
+  }
+  .section-heading h2 {
+    font-size: 22px;
+  }
+  .section-heading .eyebrow {
+    font-size: 6px;
+  }
+  .schedule-actions .button {
+    font-size: 11px;
+  }
+}
