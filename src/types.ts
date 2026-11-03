@@ -39,15 +39,22 @@ export interface Settings extends Entity {
   semesterWeeks: number;
   periods: Period[];
 }
+export interface Note extends Entity {
+  title: string;
+  content: string;
+  archived: boolean;
+  updatedAt: string;
+}
 export interface State {
   tasks: Task[];
   categories: Category[];
   courses: Course[];
   settings: Settings[];
+  notes: Note[];
   revision: number;
   versions: Record<string, number>;
 }
-export type Collection = 'tasks' | 'categories' | 'courses' | 'settings';
+export type Collection = 'tasks' | 'categories' | 'courses' | 'settings' | 'notes';
 export interface Change {
   collection: Collection;
   id: string;

@@ -395,3 +395,56 @@ test('new application instances retain accounts, sessions and task data', async 
     await second.db.close();
   }
 });
+
+test('notebook content, archives, conflicts and tombstones are private and durable', async (t) => {
+  const { register, request, mutate, dataDir, databaseUrl, databaseSchema } = await setup(t);
+  const alice = await register('notes-alice@example.com');
+  const bob = await register('notes-bob@example.com');
+  const note = {
+    title: '冒险手记',
+    content: '第一行\n\n  保留缩进和换行\n',
+    archived: false,
+    updatedAt: new Date().toISOString(),
+  };
+  const change = (expectedVersion, data) => ({
+    collection: 'notes',
+    id: 'my-note',
+    expectedVersion,
+    data,
+  });
+  const first = await mutate(alice.cookie, [change(0, note)]);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.notes[0].content, note.content);
+  assert.deepEqual((await request('/api/state', undefined, bob.cookie)).body.notes, []);
+  assert.equal(
+    (await mutate(bob.cookie, [change(1, { ...note, content: 'other account' })])).status,
+    409,
+  );
+  const archived = await mutate(alice.cookie, [change(1, { ...note, archived: true })]);
+  assert.equal(archived.body.notes[0].archived, true);
+  const conflict = await mutate(alice.cookie, [change(1, { ...note, content: 'stale edit' })]);
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.state.notes[0].archived, true);
+  assert.equal(conflict.body.state.notes[0].content, note.content);
+  const second = await createApp({ dataDir, databaseUrl, databaseSchema, disableRateLimit: true });
+  try {
+    const retained = await second.db.read((c) =>
+      c.get(
+        "SELECT data FROM entities WHERE user_id=? AND collection='notes' AND id='my-note'",
+        alice.body.user.id,
+      ),
+    );
+    assert.equal(JSON.parse(retained.data).archived, true);
+  } finally {
+    await second.db.close();
+  }
+  assert.equal(
+    (await mutate(alice.cookie, [change(2, { ...note, content: 'x'.repeat(20001) })])).status,
+    400,
+  );
+  await mutate(alice.cookie, [change(2, note)]);
+  const removed = await mutate(alice.cookie, [change(3, null)]);
+  assert.equal(removed.body.notes.length, 0);
+  assert.equal(removed.body.versions['notes/my-note'], 4);
+  assert.equal((await mutate(alice.cookie, [change(3, note)])).status, 409);
+});

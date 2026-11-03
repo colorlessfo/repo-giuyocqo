@@ -4,6 +4,7 @@ import { zhCN } from 'date-fns/locale';
 import {
   ArrowUpRight,
   BookOpen,
+  NotebookPen,
   CalendarDays,
   Check,
   CheckCheck,
@@ -27,6 +28,7 @@ import {
   UserRound,
   KeyRound,
   X,
+  Flame,
 } from 'lucide-react';
 import { api, ApiError, SyncStore } from './store';
 import type { Category, Course, Task, User } from './types';
@@ -40,15 +42,16 @@ import {
   stripEntity,
   uid,
 } from './lib';
-import { Mascot, Modal, Field } from './ui';
+import { Mascot, Modal, Field, NightSky } from './ui';
+import Notepad from './Notepad';
 import TaskEditor from './TaskEditor';
 import Schedule from './Schedule';
 import CourseImport from './CourseImport';
 import CourseEditor from './CourseEditor';
 import Auth from './Auth';
-import { teachingWeek } from '../shared/time.mjs';
 
-type Panel = 'categories' | 'semester' | 'data' | 'import' | 'account' | 'sync' | 'about' | null;
+type Panel =
+  'categories' | 'semester' | 'data' | 'import' | 'account' | 'sync' | 'about' | 'courses' | null;
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -75,7 +78,7 @@ export default function App() {
   useEffect(() => store.start(), [store]);
   const data = view.data,
     settings = data.settings[0] || makeSettings();
-  const [page, setPage] = useState<'tasks' | 'schedule' | 'courses'>('tasks');
+  const [page, setPage] = useState<'tasks' | 'schedule' | 'notes'>('tasks');
   const [category, setCategory] = useState('all');
   const [completed, setCompleted] = useState(false);
   const [search, setSearch] = useState('');
@@ -83,6 +86,13 @@ export default function App() {
   const [courseEditor, setCourseEditor] = useState<Course | 'new' | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
   const [toast, setToast] = useState('');
+  const [effects, setEffects] = useState(() => {
+    try {
+      return localStorage.getItem('qiyu-night-effects') !== 'off';
+    } catch {
+      return true;
+    }
+  });
   const [now, setNow] = useState(Date.now());
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -125,6 +135,14 @@ export default function App() {
     setCategory('all');
     setSearch('');
   }
+  function toggleEffects() {
+    setEffects(!effects);
+    try {
+      localStorage.setItem('qiyu-night-effects', effects ? 'off' : 'on');
+    } catch {
+      /* Optional preference. */
+    }
+  }
   function filterCategory(next: string) {
     setCategory(next);
     setPage('tasks');
@@ -158,7 +176,6 @@ export default function App() {
                 ? '正在同步'
                 : '保存待重试';
   const visibleCategory = data.categories.find((c) => c.id === category);
-  const currentWeek = teachingWeek(new Date(), settings.semesterStart);
   const schedule = (
     <Schedule
       tasks={data.tasks}
@@ -169,11 +186,16 @@ export default function App() {
       onMove={(task, dueAt) => updateTask(task, { dueAt })}
       onImport={() => setPanel('import')}
       onNewCourse={() => setCourseEditor('new')}
+      onNewTask={() => setTaskEditor('new')}
+      onCourseSettings={() => setPanel('courses')}
+      effects={effects}
+      onToggleEffects={toggleEffects}
       compact={page === 'tasks'}
     />
   );
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${effects ? '' : 'effects-paused'}`}>
+      <NightSky />
       <aside className="sidebar">
         <a
           href="#"
@@ -189,10 +211,10 @@ export default function App() {
           </span>
           <span>
             奇遇 <b>DDL</b>
-            <small>A LITTLE ROOM FOR LIFE</small>
+            <small>LIGHT UP YOUR NEXT QUEST</small>
           </span>
         </a>
-        <div className="sidebar-caption">你的每一天</div>
+        <div className="sidebar-caption">冒险地图</div>
         <nav className="main-nav" aria-label="主导航">
           <button className={page === 'tasks' ? 'active' : ''} onClick={() => selectPage('tasks')}>
             <LayoutList size={21} />
@@ -206,16 +228,13 @@ export default function App() {
             <CalendarDays size={21} />
             <span>七日日程</span>
           </button>
-          <button
-            className={page === 'courses' ? 'active' : ''}
-            onClick={() => selectPage('courses')}
-          >
-            <BookOpen size={21} />
-            <span>我的课程</span>
+          <button className={page === 'notes' ? 'active' : ''} onClick={() => selectPage('notes')}>
+            <NotebookPen size={21} />
+            <span>记事本</span>
           </button>
         </nav>
         <div className="sidebar-caption category-caption">
-          <span>分类收纳</span>
+          <span>任务背包</span>
           <button
             className="icon-button"
             aria-label="管理分类"
@@ -250,9 +269,9 @@ export default function App() {
             <Mascot size={88} />
             <span className="little-spark spark-two">✦</span>
             <p>
-              事情一件件来，
+              带上火把，
               <br />
-              日子慢慢发光。
+              点亮下一段奇遇。
             </p>
           </div>
           <button className="sidebar-import" onClick={() => setPanel('import')}>
@@ -270,15 +289,26 @@ export default function App() {
           </button>
         </div>
       </aside>
-      <div className="workspace">
+      <div
+        className={`workspace ${page === 'schedule' ? 'schedule-workspace' : page === 'notes' ? 'notes-workspace' : ''}`}
+      >
         <header className="topbar">
           <div className="breadcrumb">
             我的空间 <ChevronRight size={14} />
             <span>
-              {page === 'tasks' ? '待办清单' : page === 'schedule' ? '七日日程' : '学期课程'}
+              {page === 'tasks' ? '待办清单' : page === 'schedule' ? '七日日程' : '记事本'}
             </span>
           </div>
           <div className="topbar-right">
+            <button
+              className="icon-button effects-toggle"
+              aria-label="动态火焰与星空"
+              title={effects ? '暂停动态效果' : '开启动效'}
+              aria-pressed={effects}
+              onClick={toggleEffects}
+            >
+              <Flame size={19} />
+            </button>
             <span className="today-date">
               <Sun size={17} />
               {format(new Date(), 'M月d日 EEEE', { locale: zhCN })}
@@ -336,7 +366,7 @@ export default function App() {
             <>
               <div className="page-intro">
                 <div>
-                  <span className="eyebrow">A LITTLE ROOM, A BETTER DAY</span>
+                  <span className="eyebrow">EVERY LITTLE QUEST COUNTS</span>
                   <h1>
                     {visibleCategory
                       ? visibleCategory.name
@@ -526,101 +556,15 @@ export default function App() {
               </div>
             </>
           )}
-          {page === 'schedule' && (
-            <>
-              <div className="page-intro">
-                <div>
-                  <span className="eyebrow">YOUR TIME, AT YOUR PACE</span>
-                  <h1>
-                    让时间，有余量<span className="title-dot">.</span>
-                  </h1>
-                  <p>课程与待办，清清楚楚地放在一起。</p>
-                </div>
-                <button className="button primary" onClick={() => setTaskEditor('new')}>
-                  <Plus size={20} />
-                  添加待办
-                </button>
-              </div>
-            </>
-          )}
-          <div hidden={page === 'courses'}>{schedule}</div>
-          {page === 'courses' && (
-            <>
-              <div className="page-intro">
-                <div>
-                  <span className="eyebrow">A SEMESTER OF LITTLE DISCOVERIES</span>
-                  <h1>
-                    我的课程<span className="title-dot">.</span>
-                  </h1>
-                  <p>
-                    {settings.semesterStart} 开始 · 共 {settings.semesterWeeks} 周
-                    {currentWeek > 0 && currentWeek <= settings.semesterWeeks
-                      ? ` · 当前第 ${currentWeek} 周`
-                      : ' · 当前不在本学期内'}
-                  </p>
-                </div>
-                <button className="button primary" onClick={() => setPanel('import')}>
-                  <ImagePlus size={19} />
-                  图片导入课表
-                </button>
-              </div>
-              <div className="course-toolbar">
-                <button className="button" onClick={() => setCourseEditor('new')}>
-                  <Plus size={18} />
-                  手动添加课程
-                </button>
-                <button className="button quiet" onClick={() => setPanel('semester')}>
-                  <Settings2 size={18} />
-                  学期与节次设置
-                </button>
-              </div>
-              <div className="course-list">
-                {data.courses.length ? (
-                  data.courses.map((course) => (
-                    <button
-                      className="course-card"
-                      key={course.id}
-                      onClick={() => setCourseEditor(course)}
-                    >
-                      <div className="course-icon">
-                        <BookOpen size={24} />
-                      </div>
-                      <div>
-                        <span className="category-tag blue">
-                          课程 ·{' '}
-                          {course.parity === 'all'
-                            ? '每周'
-                            : course.parity === 'odd'
-                              ? '单周'
-                              : '双周'}
-                        </span>
-                        <h3>{course.title}</h3>
-                        <p>{courseSummary(course)}</p>
-                        {course.location && <small>{course.location}</small>}
-                      </div>
-                      <ArrowUpRight size={19} />
-                    </button>
-                  ))
-                ) : (
-                  <div className="empty-state">
-                    <BookOpen size={40} />
-                    <h3>把课表带进来</h3>
-                    <p>识别截图、校对时间，再按实际教学周安排。</p>
-                    <button className="button" onClick={() => setPanel('import')}>
-                      <ImagePlus size={18} />
-                      导入我的课表
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div className="info-note">
-                <BookOpen size={21} />
-                <p>
-                  课程按教学周有限重复，不会进入个人待办清单。点击课程编辑整个规则；本版本暂不开放课程拖动，以免无提示改动整学期。
-                </p>
-              </div>
-            </>
-          )}
+          <div hidden={page === 'notes'}>{schedule}</div>
+          <Notepad
+            key={store.userId}
+            store={store}
+            view={view}
+            onSync={() => setPanel('sync')}
+            embedded={page === 'notes'}
+            onFloat={() => selectPage('tasks')}
+          />
           <footer className="page-footer">
             <span>
               奇遇 DDL <i>·</i> 给生活留一点余量
@@ -679,6 +623,62 @@ export default function App() {
           }
           onClose={() => setCourseEditor(null)}
         />
+      )}
+      {panel === 'courses' && (
+        <Modal
+          title="课程与学期设置"
+          description="课程按教学周有限重复。点击课程编辑整条规则，课程不会进入个人待办清单。"
+          onClose={() => setPanel(null)}
+          wide
+        >
+          <div className="course-toolbar">
+            <button
+              className="button"
+              onClick={() => {
+                setPanel(null);
+                setCourseEditor('new');
+              }}
+            >
+              <Plus size={18} />
+              手动添加课程
+            </button>
+            <button className="button" onClick={() => setPanel('semester')}>
+              <Settings2 size={18} />
+              学期与节次设置
+            </button>
+          </div>
+          <div className="course-list">
+            {data.courses.map((course) => (
+              <button
+                className="course-card"
+                key={course.id}
+                onClick={() => {
+                  setPanel(null);
+                  setCourseEditor(course);
+                }}
+              >
+                <div className="course-icon">
+                  <BookOpen size={24} />
+                </div>
+                <div>
+                  <span className="category-tag blue">
+                    课程 ·{' '}
+                    {course.parity === 'all' ? '每周' : course.parity === 'odd' ? '单周' : '双周'}
+                  </span>
+                  <h3>{course.title}</h3>
+                  <p>{courseSummary(course)}</p>
+                  {course.location && <small>{course.location}</small>}
+                </div>
+                <ArrowUpRight size={19} />
+              </button>
+            ))}
+            {!data.courses.length && (
+              <p className="muted">
+                还没有课程。在日程表顶部点击“图片导入课表”，或在这里手动添加。
+              </p>
+            )}
+          </div>
+        </Modal>
       )}
       {panel === 'categories' && (
         <CategoryManager state={data} store={store} onClose={() => setPanel(null)} />

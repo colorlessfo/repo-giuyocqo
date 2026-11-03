@@ -56,6 +56,7 @@ export function emptyState(): State {
     tasks: [],
     categories: [],
     courses: [],
+    notes: [],
     settings: [makeSettings()],
     revision: 0,
     versions: { 'settings/main': 1 },

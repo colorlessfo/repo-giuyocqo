@@ -266,7 +266,14 @@ export async function createApp({
   });
   async function snapshot(c, userId) {
     const row = await c.get('SELECT revision FROM users WHERE id=?', userId);
-    const state = { tasks: [], categories: [], courses: [], settings: [], revision: row.revision };
+    const state = {
+      tasks: [],
+      categories: [],
+      courses: [],
+      settings: [],
+      notes: [],
+      revision: row.revision,
+    };
     const versions = {};
     for (const row of await c.all(
       'SELECT collection,id,data,version FROM entities WHERE user_id=?',

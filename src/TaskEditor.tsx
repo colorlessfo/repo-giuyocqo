@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Trash2, Check } from 'lucide-react';
 import { addHours } from 'date-fns';
-import { Field, Mascot, Modal } from './ui';
+import { Field, Mascot, Modal, mascotNames } from './ui';
 import type { Category, MascotKind, Task } from './types';
 import { localInput, stripEntity, uid } from './lib';
 
@@ -116,16 +116,17 @@ export default function TaskEditor({
         <div className="field">
           <span>选一位小伙伴</span>
           <div className="mascot-picker">
-            {(['star', 'cloud', 'moon', 'bunny'] as MascotKind[]).map((kind, i) => (
+            {(['star', 'cloud', 'moon', 'bunny'] as MascotKind[]).map((kind) => (
               <button
                 type="button"
                 key={kind}
-                aria-label={['星星', '云朵', '月亮', '兔子'][i]}
+                aria-label={mascotNames[kind]}
                 aria-pressed={mascot === kind}
                 className={mascot === kind ? 'selected' : ''}
                 onClick={() => setMascot(kind)}
               >
-                <Mascot kind={kind} size={58} />
+                <Mascot kind={kind} size={64} />
+                <span className="mascot-name">{mascotNames[kind].replace('火把', '')}</span>
                 {mascot === kind && <Check className="mascot-check" size={14} />}
               </button>
             ))}

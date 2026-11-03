@@ -149,7 +149,14 @@ export class SyncStore {
   change(collection: Collection, id: string, data: Record<string, unknown> | null) {
     return this.commit([{ collection, id, data }]);
   }
-  commit(input: { collection: Collection; id: string; data: Record<string, unknown> | null }[]) {
+  commit(
+    input: {
+      collection: Collection;
+      id: string;
+      data: Record<string, unknown> | null;
+      expectedVersion?: number;
+    }[],
+  ) {
     if (!this.view.loaded && !this.demo) throw new Error('请等待首次同步完成后再操作。');
     const data = this.view.data;
     if (!input.length || input.length > 1000) throw new Error('每次保存应包含 1 至 1000 项修改。');
@@ -162,7 +169,9 @@ export class SyncStore {
       return {
         ...c,
         data: c.data === null ? null : schemas[c.collection].parse(c.data),
-        expectedVersion: data.versions[key] || 0,
+        // Editors with unsaved text retain the version they started editing. A remote
+        // update during the debounce must produce a conflict, never silent overwrite.
+        expectedVersion: c.expectedVersion ?? data.versions[key] ?? 0,
       };
     });
     const mutation = { mutationId: crypto.randomUUID(), changes };

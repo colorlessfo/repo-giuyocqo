@@ -15,6 +15,12 @@ export const entityId = z
   .regex(/^[a-zA-Z0-9_-]+$/);
 const palettes = z.enum(['violet', 'blue', 'peach', 'rose', 'slate']);
 export const schemas = {
+  notes: z.object({
+    title: text(200).default(''),
+    content: z.string().max(20000).default(''),
+    archived: z.boolean().default(false),
+    updatedAt: z.iso.datetime({ offset: true }),
+  }),
   tasks: z.object({
     title: text(200).min(1),
     notes: text(10000).default(''),
@@ -56,7 +62,7 @@ export const schemas = {
   }),
 };
 export const changeSchema = z.object({
-  collection: z.enum(['tasks', 'categories', 'courses', 'settings']),
+  collection: z.enum(['tasks', 'categories', 'courses', 'settings', 'notes']),
   id: entityId,
   expectedVersion: z.number().int().min(0),
   data: z.unknown().nullable(),
@@ -68,11 +74,14 @@ export function validateSnapshot(input) {
     categories: [],
     courses: [],
     settings: [],
+    notes: [],
     revision: Number.isSafeInteger(input.revision) ? input.revision : 0,
     versions: {},
   };
   const seen = new Set();
-  for (const collection of ['tasks', 'categories', 'courses', 'settings']) {
+  for (const collection of ['tasks', 'categories', 'courses', 'settings', 'notes']) {
+    // Backups and browser caches made before the notebook update have no notes.
+    if (collection === 'notes' && input.notes === undefined) continue;
     if (!Array.isArray(input[collection]) || input[collection].length > 10000)
       throw new Error('数据结构不完整或超过单项上限。');
     for (const item of input[collection]) {
@@ -91,7 +100,7 @@ export function validateSnapshot(input) {
   if (input.versions && typeof input.versions === 'object')
     for (const [key, version] of Object.entries(input.versions)) {
       if (
-        /^(tasks|categories|courses|settings)\/[a-zA-Z0-9_-]{1,100}$/.test(key) &&
+        /^(tasks|categories|courses|settings|notes)\/[a-zA-Z0-9_-]{1,100}$/.test(key) &&
         Number.isSafeInteger(version) &&
         version >= 0
       )

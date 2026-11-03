@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -21,6 +21,11 @@ import {
   Plus,
   GripVertical,
   Moon,
+  Maximize2,
+  Minimize2,
+  LocateFixed,
+  Flame,
+  Settings2,
 } from 'lucide-react';
 import {
   DAY_HEIGHT,
@@ -33,6 +38,9 @@ import {
 import type { Course, Settings, Task } from './types';
 import { dateKey, weekdayNames } from './lib';
 import { Mascot } from './ui';
+
+// Fire borders remain a design study; keep the production calendar readable until approved.
+const SHOW_FIRE_PREVIEW = false;
 
 type Segment = {
   key: string;
@@ -74,40 +82,64 @@ function Blocks({
       type="button"
       aria-label={`${segment.type === 'task' ? '待办' : '课程'} ${item.title} ${format(segment.start, 'HH:mm')}至${format(segment.end, 'HH:mm')}${segment.type === 'task' ? (locked ? '，日程已锁定' : '，可拖动') : '，编辑整个课程规则'}`}
       data-testid={`block-${segment.task?.id || segment.course?.id}`}
-      className={`schedule-block ${segment.type} ${draggable.isDragging ? 'dragging' : ''} ${height < 55 ? 'compact' : ''}`}
-      style={{
-        top,
-        height,
-        left: `calc(${((segment.lane || 0) / (segment.lanes || 1)) * 100}% + 4px)`,
-        width: `calc(${100 / (segment.lanes || 1)}% - 8px)`,
-        transform: transform ? `translate3d(${transform.x}px,${transform.y}px,0)` : undefined,
-        touchAction: !locked && segment.type === 'task' ? 'none' : 'pan-x pan-y',
-      }}
+      className={`schedule-block ${segment.type} ${segment.task && SHOW_FIRE_PREVIEW ? 'has-fire' : ''} ${draggable.isDragging ? 'dragging' : ''} ${height < 110 ? 'short' : ''} ${height < 55 ? 'compact' : ''}`}
+      style={
+        {
+          top,
+          height,
+          '--block-height': `${height}px`,
+          left: `calc(${((segment.lane || 0) / (segment.lanes || 1)) * 100}% + var(--block-inset, 4px))`,
+          width: `calc(${100 / (segment.lanes || 1)}% - var(--block-gap, 8px))`,
+          transform: transform ? `translate3d(${transform.x}px,${transform.y}px,0)` : undefined,
+          touchAction: !locked && segment.type === 'task' ? 'none' : 'pan-x pan-y',
+        } as CSSProperties
+      }
       onClick={onClick}
       title={`${item.title}\n${format(segment.start, 'MM月dd日 HH:mm')} – ${format(segment.end, 'MM月dd日 HH:mm')}${segment.task ? `\nDDL：${format(new Date(segment.task.dueAt), 'MM月dd日 HH:mm')}` : ''}`}
     >
-      <div className="block-label">
-        <span>{segment.type === 'task' ? '待办' : '课程'}</span>
-        {segment.type === 'task' && !locked && <GripVertical size={14} />}
-      </div>
-      <strong>{item.title}</strong>
-      {height >= 65 && (
-        <small>
-          {format(segment.start, 'HH:mm')}–
-          {segment.endMinute === 1440 ? '24:00' : format(segment.end, 'HH:mm')}
-          {segment.course?.location && ` · ${segment.course.location}`}
-        </small>
-      )}
-      {height >= 110 && segment.task && <Mascot kind={segment.task.mascot} size={40} />}
-      {segment.task && height >= 100 && (
-        <div className="block-progress">
-          <i
-            style={{
-              width: `${Math.max(0, Math.min(100, ((Date.now() - taskInterval(segment.task).start.getTime()) / (segment.task.durationMinutes * 60000)) * 100))}%`,
-            }}
-          />
+      {segment.task && SHOW_FIRE_PREVIEW && (
+        <div
+          className="task-fire"
+          aria-hidden="true"
+          style={
+            {
+              '--fire-phase': `${-(Array.from(segment.task.id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % 50) / 10}s`,
+            } as CSSProperties
+          }
+        >
+          <div className="fire-surface" />
+          <i className="flame-edge flame-top" />
+          <i className="flame-edge flame-bottom" />
+          <i className="flame-edge flame-left" />
+          <i className="flame-edge flame-right" />
+          <i className="block-ember ember-one" />
+          <i className="block-ember ember-two" />
         </div>
       )}
+      <div className="block-content">
+        <div className="block-label">
+          <span>{segment.type === 'task' ? '待办' : '课程'}</span>
+          {segment.type === 'task' && !locked && <GripVertical size={14} />}
+        </div>
+        <strong>{item.title}</strong>
+        {height >= 85 && (
+          <small>
+            {format(segment.start, 'HH:mm')}–
+            {segment.endMinute === 1440 ? '24:00' : format(segment.end, 'HH:mm')}
+            {segment.course?.location && ` · ${segment.course.location}`}
+          </small>
+        )}
+        {height >= 110 && segment.task && <Mascot kind={segment.task.mascot} size={40} />}
+        {segment.task && height >= 100 && (
+          <div className="block-progress">
+            <i
+              style={{
+                width: `${Math.max(0, Math.min(100, ((Date.now() - taskInterval(segment.task).start.getTime()) / (segment.task.durationMinutes * 60000)) * 100))}%`,
+              }}
+            />
+          </div>
+        )}
+      </div>
     </button>
   );
 }
@@ -149,6 +181,10 @@ export default function Schedule({
   onMove,
   onImport,
   onNewCourse,
+  onNewTask,
+  onCourseSettings,
+  effects,
+  onToggleEffects,
   compact = false,
 }: {
   tasks: Task[];
@@ -159,9 +195,16 @@ export default function Schedule({
   onMove: (t: Task, dueAt: string) => void;
   onImport: () => void;
   onNewCourse: () => void;
+  onNewTask: () => void;
+  onCourseSettings: () => void;
+  effects: boolean;
+  onToggleEffects: () => void;
   compact?: boolean;
 }) {
   const [offset, setOffset] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const [layout, setLayout] = useState<'week' | 'day'>('week');
+  const [selectedDay, setSelectedDay] = useState(0);
   const [locked, setLocked] = useState(true);
   const [showTasks, setShowTasks] = useState(true);
   const [showCourses, setShowCourses] = useState(true);
@@ -171,6 +214,8 @@ export default function Schedule({
   >([]);
   const [notice, setNotice] = useState('');
   const scroll = useRef<HTMLDivElement>(null);
+  const section = useRef<HTMLElement>(null);
+  const expandButton = useRef<HTMLButtonElement>(null);
   const columns = useRef<HTMLDivElement>(null);
   const justDragged = useRef(0);
   const sensors = useSensors(
@@ -184,6 +229,65 @@ export default function Schedule({
   useEffect(() => {
     if (scroll.current) scroll.current.scrollTop = minuteToY(420);
   }, []);
+  useEffect(() => {
+    const flames = section.current?.querySelectorAll('.task-fire');
+    if (!flames?.length) return;
+    if (!('IntersectionObserver' in window)) {
+      flames.forEach((element) => element.classList.add('flame-visible'));
+      return;
+    }
+    // One observer per calendar; offscreen flames don't keep animating.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries)
+          entry.target.classList.toggle('flame-visible', entry.isIntersecting);
+      },
+      { root: scroll.current, rootMargin: '30px' },
+    );
+    flames.forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, [tasks, courses, layout, offset, selectedDay, expanded]);
+  useEffect(() => {
+    if (!expanded || !section.current) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    // Keep the same calendar mounted: lock, undo, scroll and edits survive expansion.
+    // Remove the covered page from keyboard navigation; the floating notebook stays usable.
+    const covered: { element: HTMLElement; inert: boolean }[] = [];
+    let child: HTMLElement = section.current;
+    while (child.parentElement) {
+      for (const sibling of child.parentElement.children) {
+        if (
+          sibling !== child &&
+          sibling instanceof HTMLElement &&
+          !sibling.hasAttribute('data-floating-tools') &&
+          !sibling.hasAttribute('data-radix-portal')
+        ) {
+          covered.push({ element: sibling, inert: sibling.inert });
+          sibling.inert = true;
+        }
+      }
+      child = child.parentElement;
+      if (child === document.body) break;
+    }
+    expandButton.current?.focus({ preventScroll: true });
+    const escape = (event: KeyboardEvent) => {
+      if (
+        event.key === 'Escape' &&
+        !event.defaultPrevented &&
+        section.current?.contains(event.target as Node) &&
+        !document.querySelector('.modal-content')
+      )
+        setExpanded(false);
+    };
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      for (const { element, inert } of covered) element.inert = inert;
+      document.removeEventListener('keydown', escape);
+      expandButton.current?.focus({ preventScroll: true });
+    };
+  }, [expanded]);
   const days = Array.from({ length: 7 }, (_, i) => addDays(startOfDay(now), offset + i));
   const segments = days.map((day, dayIndex) => {
     const next = addDays(day, 1);
@@ -231,7 +335,7 @@ export default function Schedule({
     justDragged.current = Date.now();
     const segment = event.active.data.current as Segment;
     if (locked || !segment?.task || !columns.current || (!event.delta.x && !event.delta.y)) return;
-    const width = columns.current.clientWidth / 7;
+    const width = columns.current.clientWidth / (layout === 'day' ? 1 : 7);
     const horizontalDays = Math.round(event.delta.x / width);
     const rawY = minuteToY(segment.startMinute) + event.delta.y;
     const extraDays = Math.floor(rawY / DAY_HEIGHT);
@@ -278,22 +382,84 @@ export default function Schedule({
   }
   const hours = [0, 6, ...Array.from({ length: 17 }, (_, i) => i + 7)];
   return (
-    <section className={`schedule-section ${compact ? 'schedule-preview' : ''}`} id="schedule">
+    <section
+      ref={section}
+      role="region"
+      aria-label={expanded ? '全屏日程表' : '七日日程表'}
+      className={`schedule-section ${compact ? 'schedule-preview' : 'schedule-page'} ${expanded ? 'schedule-expanded' : ''} schedule-${layout}`}
+      style={{ '--visible-days': layout === 'day' ? 1 : 7 } as CSSProperties}
+      id="schedule"
+    >
       <div className="section-heading">
         <div>
-          <span className="eyebrow">MAKE ROOM FOR WHAT MATTERS</span>
+          <span className="eyebrow">YOUR SEVEN-DAY ADVENTURE</span>
           <h2>
             <CalendarDays size={25} />
             未来七天
           </h2>
         </div>
         <div className="schedule-actions">
-          <button className="button small" onClick={onImport}>
+          <button
+            ref={expandButton}
+            className="button small expand-schedule"
+            aria-pressed={expanded}
+            aria-label={expanded ? '退出全屏日程' : '放大日程表'}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            <span>{expanded ? '退出全屏' : '全屏日程'}</span>
+          </button>
+          <button
+            className="button small schedule-new-task"
+            onClick={onNewTask}
+            aria-label="添加待办"
+          >
+            <Plus size={18} />
+            <span>添加待办</span>
+          </button>
+          <button className="button small" onClick={onImport} aria-label="图片导入课表">
             <ImagePlus size={18} />
             <span>图片导入课表</span>
           </button>
           <button className="icon-button" onClick={onNewCourse} aria-label="添加课程">
             <Plus size={20} />
+          </button>
+        </div>
+      </div>
+      <div className="schedule-viewbar">
+        <div className="schedule-view-switch" role="group" aria-label="日程视图">
+          <button aria-pressed={layout === 'week'} onClick={() => setLayout('week')}>
+            七天总览
+          </button>
+          <button aria-pressed={layout === 'day'} onClick={() => setLayout('day')}>
+            单日详情
+          </button>
+        </div>
+        <div className="schedule-viewbar-actions">
+          <button
+            className="icon-button"
+            aria-label="课程与学期设置"
+            title="管理课程、周次与节次"
+            onClick={onCourseSettings}
+          >
+            <Settings2 size={18} />
+          </button>
+          <button
+            className="text-button now-button"
+            onClick={() => {
+              setOffset(0);
+              setSelectedDay(0);
+              if (scroll.current) {
+                scroll.current.scrollTop = Math.max(
+                  0,
+                  minuteToY(now.getHours() * 60 + now.getMinutes()) - 120,
+                );
+                scroll.current.scrollLeft = 0;
+              }
+            }}
+          >
+            <LocateFixed size={16} />
+            回到此刻
           </button>
         </div>
       </div>
@@ -347,6 +513,15 @@ export default function Schedule({
             <Undo2 size={19} />
           </button>
           <button
+            className="icon-button calendar-effects"
+            aria-label="日程动态效果"
+            title={effects ? '暂停火焰与星空动画' : '开启动画'}
+            aria-pressed={effects}
+            onClick={onToggleEffects}
+          >
+            <Flame size={18} />
+          </button>
+          <button
             aria-pressed={!locked}
             className={`button small lock-button ${locked ? '' : 'unlocked'}`}
             onClick={() => {
@@ -359,10 +534,24 @@ export default function Schedule({
           </button>
         </div>
       </div>
+      {layout === 'day' && (
+        <div className="day-selector" role="group" aria-label="选择查看日期">
+          {days.map((day, index) => (
+            <button
+              key={dateKey(day)}
+              aria-pressed={selectedDay === index}
+              onClick={() => setSelectedDay(index)}
+            >
+              <span>{weekdayNames[(day.getDay() + 6) % 7]}</span>
+              <strong>{format(day, 'dd')}</strong>
+            </button>
+          ))}
+        </div>
+      )}
       <p className="schedule-hint" aria-live="polite">
         {notice ||
           (locked
-            ? '点击解锁后，可以连续拖动待办。课程点击后编辑整门课程规则。'
+            ? '解锁后可连续拖动 · 课程点击编辑 · 全屏查看更清楚'
             : '可连续上下调整时间、左右跨天移动。DDL 随之更新，用时保持不变。')}
       </p>
       <DndContext
@@ -389,12 +578,14 @@ export default function Schedule({
                 <br />
                 时间
               </div>
-              {days.map((day) => (
-                <div key={dateKey(day)} className={dateKey(day) === dateKey(now) ? 'today' : ''}>
-                  <span>{weekdayNames[(day.getDay() + 6) % 7]}</span>
-                  <strong>{format(day, 'dd')}</strong>
-                </div>
-              ))}
+              {days
+                .filter((_, index) => layout === 'week' || index === selectedDay)
+                .map((day) => (
+                  <div key={dateKey(day)} className={dateKey(day) === dateKey(now) ? 'today' : ''}>
+                    <span>{weekdayNames[(day.getDay() + 6) % 7]}</span>
+                    <strong>{format(day, 'dd')}</strong>
+                  </div>
+                ))}
             </div>
             <div className="schedule-body" style={{ height: DAY_HEIGHT }}>
               <div className="time-gutter">
@@ -410,6 +601,7 @@ export default function Schedule({
                   <div
                     className={`day-column ${dateKey(day) === dateKey(now) ? 'today' : ''}`}
                     key={dateKey(day)}
+                    hidden={layout === 'day' && index !== selectedDay}
                   >
                     <div className="rest-zone" style={{ height: minuteToY(360) }}>
                       <Moon size={12} />

@@ -66,6 +66,227 @@ async function waitForSaved(page: Page) {
   });
 }
 
+test('calendar expands to the viewport, switches days and keeps unlock state through dialogs', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '七日日程', exact: true }).click();
+  await page.getByRole('button', { name: '已锁定', exact: true }).click();
+  await page.getByRole('button', { name: '放大日程表', exact: true }).click();
+  const calendar = page.getByRole('region', { name: '全屏日程表', exact: true });
+  const box = (await calendar.boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(box.width).toBe(viewport.width);
+  expect(box.height).toBe(viewport.height);
+  expect(
+    await page.locator('.schedule-scroll').evaluate((el) => el.scrollWidth <= el.clientWidth),
+  ).toBeTruthy();
+  await expect(page.getByRole('button', { name: '已解锁', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '单日详情', exact: true }).click();
+  await expect(page.locator('.day-column:visible')).toHaveCount(1);
+  await page.getByRole('group', { name: '选择查看日期' }).getByRole('button').nth(1).click();
+  const task = page.getByTestId('block-demo-design');
+  await task.scrollIntoViewIfNeeded();
+  await task.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('button', { name: '火把小狐狸', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '关闭弹窗', exact: true }).click();
+  await expect(calendar).toBeVisible();
+  await expect(page.getByRole('button', { name: '已解锁', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '七天总览', exact: true }).click();
+  await expect(page.locator('.day-column:visible')).toHaveCount(7);
+  await page.screenshot({ path: testInfo.outputPath('fullscreen-calendar.png') });
+  await page.getByRole('button', { name: '打开悬浮记事本' }).click();
+  await expect(page.getByRole('region', { name: '悬浮记事本', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '收起记事本' }).click();
+  await page.getByRole('button', { name: '退出全屏日程', exact: true }).click();
+  await expect(calendar).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '已解锁', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe('');
+  await page.getByRole('button', { name: /^我的待办/ }).click();
+  await expect(page.locator('.task-row')).toHaveCount(3);
+});
+
+test('floating notes resize, survive immediate reload, archive, restore, export and sync privately', async ({
+  context,
+  page,
+  browser,
+}, testInfo) => {
+  const account = await register(context);
+  await page.goto('/');
+  await waitForSaved(page);
+  await page.getByRole('button', { name: '打开悬浮记事本' }).click();
+  const notebook = page.getByRole('region', { name: '悬浮记事本', exact: true });
+  await page.getByRole('button', { name: '新建笔记', exact: true }).click();
+  await page.getByLabel('笔记标题').fill('夜间灵感');
+  const text = '保留这段灵感\n\n  还有缩进和换行\n';
+  await page.getByLabel('笔记正文').fill(text);
+  // Reload before the debounce fires. The per-account draft must recover and sync.
+  await page.reload();
+  await expect.poll(async () => (await state(page)).notes[0]?.content).toBe(text);
+  await page.getByRole('button', { name: '打开悬浮记事本' }).click();
+  await page.getByRole('button', { name: /夜间灵感/ }).click();
+  await expect(page.getByLabel('笔记正文')).toHaveValue(text);
+  await page.getByRole('button', { name: '调整记事本外形' }).click();
+  await page.getByRole('button', { name: '方形', exact: true }).click();
+  await page
+    .getByLabel('记事本宽度', { exact: true })
+    .fill(testInfo.project.name === 'mobile' ? '310' : '450');
+  await page.getByLabel('记事本高度', { exact: true }).fill('470');
+  await page.getByLabel('记事本圆角', { exact: true }).fill('24');
+  const before = (await notebook.boundingBox())!;
+  const handle = page.getByTestId('notepad-resize');
+  const resizeBox = (await handle.boundingBox())!;
+  const x = resizeBox.x + resizeBox.width / 2,
+    y = resizeBox.y + resizeBox.height / 2;
+  if (testInfo.project.name === 'mobile') {
+    const session = await context.newCDPSession(page);
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: x + 20, y: y + 25 }],
+    });
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await session.detach();
+  } else {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 20, y + 25, { steps: 6 });
+    await page.mouse.up();
+  }
+  const after = (await notebook.boundingBox())!;
+  expect(after.width).toBeGreaterThan(before.width);
+  expect(after.height).toBeGreaterThan(before.height);
+  const viewport = page.viewportSize()!;
+  expect(after.x + after.width).toBeLessThanOrEqual(viewport.width);
+  expect(after.y + after.height).toBeLessThanOrEqual(viewport.height);
+  await page.getByRole('button', { name: '调整记事本外形' }).click();
+  await page.getByRole('button', { name: '归档笔记', exact: true }).click();
+  await waitForSaved(page);
+  expect((await state(page)).notes[0].archived).toBe(true);
+  await page.getByRole('group', { name: '笔记范围' }).getByRole('button', { name: /归档/ }).click();
+  await page.getByRole('button', { name: /夜间灵感/ }).click();
+  await expect(page.getByLabel('笔记正文')).toHaveAttribute('readonly', '');
+  await page.getByRole('button', { name: '恢复笔记', exact: true }).click();
+  await waitForSaved(page);
+  expect((await state(page)).notes[0].archived).toBe(false);
+  await page
+    .getByRole('group', { name: '笔记范围' })
+    .getByRole('button', { name: '笔记', exact: true })
+    .click();
+  await page.getByRole('button', { name: /夜间灵感/ }).click();
+  await page.screenshot({ path: testInfo.outputPath('floating-notebook.png') });
+  await page.getByRole('button', { name: '收起记事本' }).click();
+  const second = await browser.newContext({ baseURL: 'http://127.0.0.1:3100' });
+  const other = await browser.newContext({ baseURL: 'http://127.0.0.1:3100' });
+  try {
+    expect(
+      (await second.request.post('/api/auth/login', { data: { account, password } })).ok(),
+    ).toBeTruthy();
+    expect((await (await second.request.get('/api/state')).json()).notes[0].content).toBe(text);
+    await register(other);
+    expect((await (await other.request.get('/api/state')).json()).notes).toEqual([]);
+  } finally {
+    await second.close();
+    await other.close();
+  }
+  await page.getByRole('button', { name: '备份与日历导出', exact: true }).last().click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: /下载完整备份/ }).click();
+  const file = await download;
+  const filePath = testInfo.outputPath('notebook-backup.json');
+  await file.saveAs(filePath);
+  const fs = await import('node:fs/promises');
+  const backup = JSON.parse(await fs.readFile(filePath, 'utf8'));
+  expect(backup.data.notes[0].content).toBe(text);
+});
+
+test('notebook offline text retries and a remote edit during autosave raises a conflict', async ({
+  context,
+  page,
+}) => {
+  await register(context);
+  const id = randomUUID();
+  const initial = {
+    title: '不会丢失的手记',
+    content: '原始内容',
+    archived: false,
+    updatedAt: new Date().toISOString(),
+  };
+  await context.request.post('/api/changes', {
+    data: {
+      mutationId: randomUUID(),
+      changes: [{ collection: 'notes', id, expectedVersion: 0, data: initial }],
+    },
+  });
+  await page.goto('/');
+  await waitForSaved(page);
+  await page.getByRole('button', { name: '打开悬浮记事本' }).click();
+  await page.getByRole('button', { name: /不会丢失的手记/ }).click();
+  await context.setOffline(true);
+  await page.getByLabel('笔记正文').fill('离线写下的文字');
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const key = Object.keys(localStorage).find(
+          (k) => k.startsWith('qiyu-ddl-v1:') && !k.endsWith(':demo'),
+        );
+        return key ? JSON.parse(localStorage.getItem(key)!).queue.length : 0;
+      }),
+    )
+    .toBeGreaterThan(0);
+  await context.setOffline(false);
+  await waitForSaved(page);
+  expect((await state(page)).notes[0].content).toBe('离线写下的文字');
+  // Preserve the editor's original version even if a newer snapshot arrives before debounce.
+  await page.getByLabel('笔记正文').fill('本机正在输入，还没自动保存');
+  const cloud = (await state(page)).notes[0];
+  const result = await context.request.post('/api/changes', {
+    data: {
+      mutationId: randomUUID(),
+      changes: [
+        {
+          collection: 'notes',
+          id,
+          expectedVersion: cloud.version,
+          data: { ...cloud, content: '另一台设备的新文字' },
+        },
+      ],
+    },
+  });
+  expect(result.status()).toBe(200);
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.locator('.sync-indicator')).toHaveAttribute('class', /conflict/);
+  expect((await state(page)).notes[0].content).toBe('另一台设备的新文字');
+  await expect(page.getByLabel('笔记正文')).toHaveValue('本机正在输入，还没自动保存');
+  await page.locator('.notepad-status > button').click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: '保留本机修改', exact: true }).click();
+  await waitForSaved(page);
+  expect((await state(page)).notes[0].content).toBe('本机正在输入，还没自动保存');
+});
+
+test('notebook replaces course navigation and switches to a floating editor without losing text', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: '我的课程', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '记事本', exact: true }).click();
+  await expect(page.getByRole('region', { name: '记事本工作区', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '新建笔记', exact: true }).click();
+  await page.getByLabel('笔记标题').fill('完整页面和悬浮窗是同一篇');
+  await page.getByLabel('笔记正文').fill('切换时保留正在写的内容。');
+  await page.getByRole('button', { name: '切换为悬浮记事本', exact: true }).click();
+  await expect(page.getByRole('region', { name: '悬浮记事本', exact: true })).toBeVisible();
+  await expect(page.getByLabel('笔记正文')).toHaveValue('切换时保留正在写的内容。');
+  await page.getByRole('button', { name: '收起记事本', exact: true }).click();
+  await page.getByRole('button', { name: '记事本', exact: true }).click();
+  await expect(page.getByLabel('笔记正文')).toHaveValue('切换时保留正在写的内容。');
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBeTruthy();
+});
+
 test('home prioritizes tasks, shows readable text, and has no overflow', async ({
   page,
 }, testInfo) => {
@@ -314,7 +535,7 @@ test('unlock once, move twice across days, undo, and cancel a drag', async ({
     await waitForSaved(page);
     expect((await state(page)).tasks[0].dueAt).toBe(afterOne);
   }
-  await page.getByRole('button', { name: '我的课程', exact: true }).click();
+  await page.getByRole('button', { name: '记事本', exact: true }).click();
   await page.getByRole('button', { name: '七日日程', exact: true }).click();
   await expect(page.getByRole('button', { name: '已解锁', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '撤销移动', exact: true }).click();
@@ -435,7 +656,8 @@ test('manual course review requires fields and confirmation, imports only finite
   expect(saved.courses).toHaveLength(1);
   expect(saved.courses[0].endWeek).toBe(16);
   expect(saved.tasks).toHaveLength(0);
-  await page.getByRole('button', { name: '我的课程', exact: true }).click();
+  await page.getByRole('button', { name: '七日日程', exact: true }).click();
+  await page.getByRole('button', { name: '课程与学期设置', exact: true }).click();
   await expect(page.getByRole('heading', { name: '大学英语', exact: true })).toBeVisible();
 });
 test('a screenshot is actually recognized and imported through the correction screen', async ({

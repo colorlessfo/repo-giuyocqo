@@ -11,6 +11,26 @@ import {
 } from '../shared/time.mjs';
 import { extractCourseText, extractTimetable } from '../shared/ocr.mjs';
 import { calendarExport, emptyState } from '../src/lib.ts';
+import { validateSnapshot } from '../shared/validation.mjs';
+test('older caches and backups gain an empty notebook without losing task versions', () => {
+  const previous = emptyState();
+  delete previous.notes;
+  previous.versions['tasks/deleted-task'] = 4;
+  const upgraded = validateSnapshot(previous);
+  assert.deepEqual(upgraded.notes, []);
+  assert.equal(upgraded.versions['tasks/deleted-task'], 4);
+  upgraded.notes.push({
+    id: 'note',
+    version: 2,
+    title: '手记',
+    content: '\n  字句\n',
+    archived: true,
+    updatedAt: new Date().toISOString(),
+  });
+  const restored = validateSnapshot(JSON.parse(JSON.stringify(upgraded)));
+  assert.equal(restored.notes[0].content, '\n  字句\n');
+  assert.equal(restored.notes[0].archived, true);
+});
 test('compressed time axis remains invertible at midnight, 06:00, and every minute', () => {
   for (let minute = 0; minute <= 1440; minute++)
     assert.ok(Math.abs(yToMinute(minuteToY(minute)) - minute) < 1e-8);

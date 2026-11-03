@@ -293,7 +293,7 @@ export function DataPanel({
         throw new Error(
           '这个文件不是当前版本的奇遇 DDL 备份。旧版数据需要先确认格式，不会冒险覆盖。',
         );
-      const data = value.data as State;
+      const data = validateSnapshot(value.data) as State;
       if (
         !data ||
         !['tasks', 'courses', 'categories', 'settings'].every((key) =>
@@ -302,14 +302,18 @@ export function DataPanel({
       )
         throw new Error('备份结构不完整。');
       if (
-        data.tasks.length + data.courses.length + data.categories.length + data.settings.length >
+        data.tasks.length +
+          data.courses.length +
+          data.categories.length +
+          data.settings.length +
+          data.notes.length >
         1000
       )
         throw new Error('单次最多恢复 1000 条数据，请分批处理。');
       if (data.settings.length !== 1 || data.settings[0].id !== 'main')
         throw new Error('学期设置不完整。');
       const seen = new Set<string>();
-      for (const key of ['tasks', 'courses', 'categories', 'settings'] as const)
+      for (const key of ['tasks', 'courses', 'categories', 'settings', 'notes'] as const)
         for (const item of data[key]) {
           if (
             !item ||
@@ -335,7 +339,7 @@ export function DataPanel({
     try {
       const validated = validateSnapshot(parsed) as State;
       const changes = [];
-      for (const collection of ['categories', 'tasks', 'courses', 'settings'] as const)
+      for (const collection of ['categories', 'tasks', 'courses', 'settings', 'notes'] as const)
         for (const item of validated[collection]) {
           const current = (state[collection] as any[]).find((v) => v.id === item.id);
           if (current && JSON.stringify(stripEntity(current)) === JSON.stringify(stripEntity(item)))
@@ -363,7 +367,7 @@ export function DataPanel({
           <Download size={24} />
           <span>
             <strong>下载完整备份</strong>
-            <small>任务、分类、课程、学期与节次设置</small>
+            <small>任务、分类、课程、笔记与归档、学期设置</small>
           </span>
           <span>JSON</span>
         </button>
@@ -410,7 +414,7 @@ export function DataPanel({
           <strong>{filename}</strong>
           <p>
             {parsed.tasks.length} 件任务 · {parsed.categories.length} 个分类 ·{' '}
-            {parsed.courses.length} 门课程
+            {parsed.courses.length} 门课程 · {parsed.notes.length} 篇笔记
           </p>
           <p>
             确认后，同 ID 的条目将采用备份内容，其他现有条目保留。重复导入不会新增同 ID
