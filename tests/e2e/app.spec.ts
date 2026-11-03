@@ -66,6 +66,128 @@ async function waitForSaved(page: Page) {
   });
 }
 
+test('white random sky has varied brightness, no repeating layout, and remains stable across page navigation', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem('qiyu-night-effects', 'off'));
+  await page.goto('/');
+  const canvas = page.locator('.random-starfield');
+  const pixels = () =>
+    canvas.evaluate((el: HTMLCanvasElement) => {
+      const data = el.getContext('2d')!.getImageData(0, 0, el.width, el.height).data;
+      let hash = 0,
+        visible = 0,
+        colored = 0;
+      const levels = new Set<number>();
+      for (let i = 0; i < data.length; i += 4) {
+        hash = (Math.imul(hash, 31) + data[i] + 3 * data[i + 3]) | 0;
+        if (data[i + 3] > 20) {
+          visible++;
+          levels.add(data[i + 3]);
+          if (data[i] !== data[i + 1] || data[i + 1] !== data[i + 2]) colored++;
+        }
+      }
+      return { hash, visible, colored, levels: levels.size };
+    });
+  await expect.poll(async () => (await pixels()).visible).toBeGreaterThan(100);
+  const first = await pixels();
+  expect(first.colored).toBe(0);
+  expect(first.levels).toBeGreaterThan(20);
+  await page.getByRole('button', { name: '记事本', exact: true }).click();
+  expect((await pixels()).hash).toBe(first.hash);
+  await page.reload();
+  await expect.poll(async () => (await pixels()).visible).toBeGreaterThan(100);
+  expect((await pixels()).hash).not.toBe(first.hash);
+});
+
+test('uploaded flame controls require unlock, persist, and task blocks contain no pets', async ({
+  context,
+  page,
+  browser,
+}, testInfo) => {
+  const account = await register(context);
+  const task = await createTask(page, { title: '火焰联动测试', durationMinutes: 180 });
+  await page.goto('/');
+  await waitForSaved(page);
+  await page.getByRole('button', { name: '七日日程', exact: true }).click();
+  await page.getByRole('button', { name: '放大日程表', exact: true }).click();
+  const block = page.getByTestId(`block-${task.id}`);
+  await block.scrollIntoViewIfNeeded();
+  await expect(block.locator('canvas')).toHaveCount(1);
+  await expect(page.locator('.schedule-block .mascot')).toHaveCount(0);
+  async function pixels() {
+    return block.locator('canvas').evaluate((canvas: HTMLCanvasElement) => {
+      const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+      let hash = 0,
+        painted = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        hash = (Math.imul(hash, 31) + data[i] + data[i + 1] * 3 + data[i + 3] * 7) | 0;
+        if (data[i + 3]) painted++;
+      }
+      return { hash, painted };
+    });
+  }
+  await expect.poll(async () => (await pixels()).painted).toBeGreaterThan(0);
+  await page.getByRole('button', { name: '火焰调节', exact: true }).click();
+  for (const name of ['燃烧速度', '火舌幅度', '黄色核心比例', '像素大小', '播放火焰动画'])
+    await expect(page.getByLabel(name, { exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '恢复默认火焰', exact: true })).toBeDisabled();
+  const before = await state(page);
+  await page.getByRole('button', { name: '已锁定', exact: true }).click();
+  for (const name of ['燃烧速度', '火舌幅度', '黄色核心比例', '像素大小']) {
+    const slider = page.getByLabel(name, { exact: true });
+    await expect(slider).toBeEnabled();
+    await slider.focus();
+    await slider.press('End');
+    await waitForSaved(page);
+    await expect(page.getByRole('button', { name: '已解锁', exact: true })).toBeVisible();
+  }
+  await page.getByLabel('播放火焰动画', { exact: true }).uncheck();
+  await page.getByRole('button', { name: '已解锁', exact: true }).click();
+  await waitForSaved(page);
+  const saved = await state(page);
+  expect(saved.settings[0].flame).toEqual({
+    speed: 1.6,
+    tongueSize: 1.6,
+    coreRatio: 0.65,
+    pixelSize: 7,
+    animated: false,
+  });
+  expect(saved.tasks[0].dueAt).toBe(before.tasks[0].dueAt);
+  expect(saved.settings[0].semesterStart).toBe(before.settings[0].semesterStart);
+  await expect(page.getByLabel('燃烧速度', { exact: true })).toBeDisabled();
+  // Scroll/resize can redraw a paused flame, but its phase must stay still.
+  await block.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
+  const paused = await pixels();
+  await page.waitForTimeout(300);
+  expect(await pixels()).toEqual(paused);
+  await page.screenshot({ path: testInfo.outputPath('locked-flame-tuner.png') });
+  await page.reload();
+  await waitForSaved(page);
+  await page.getByRole('button', { name: '七日日程', exact: true }).click();
+  await page.getByRole('button', { name: '火焰调节', exact: true }).click();
+  await expect(page.getByLabel('燃烧速度', { exact: true })).toHaveValue('1.6');
+  await expect(page.getByLabel('燃烧速度', { exact: true })).toBeDisabled();
+  const device = await browser.newContext({ baseURL: 'http://127.0.0.1:3100' });
+  try {
+    await device.request.post('/api/auth/login', { data: { account, password } });
+    const synchronized = await (await device.request.get('/api/state')).json();
+    expect(synchronized.settings[0].flame).toEqual(saved.settings[0].flame);
+  } finally {
+    await device.close();
+  }
+  await page.getByRole('button', { name: '课程与学期设置', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: '学期与节次设置', exact: true })
+    .click();
+  await page.getByLabel('教学周总数', { exact: true }).fill('18');
+  await page.getByRole('button', { name: '保存学期设置', exact: true }).click();
+  await waitForSaved(page);
+  expect((await state(page)).settings[0].flame).toEqual(saved.settings[0].flame);
+});
+
 test('calendar expands to the viewport, switches days and keeps unlock state through dialogs', async ({
   page,
 }, testInfo) => {

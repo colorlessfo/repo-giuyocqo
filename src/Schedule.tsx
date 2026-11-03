@@ -35,12 +35,11 @@ import {
   courseOccursOn,
   moveDeadline,
 } from '../shared/time.mjs';
-import type { Course, Settings, Task } from './types';
+import type { Course, Settings, Task, FlameConfig } from './types';
 import { dateKey, weekdayNames } from './lib';
-import { Mascot } from './ui';
-
-// Fire borders remain a design study; keep the production calendar readable until approved.
-const SHOW_FIRE_PREVIEW = false;
+import FlameCanvas from './FlameCanvas';
+import FlameTuner from './FlameTuner';
+import { DEFAULT_FLAME } from '../shared/flame.mjs';
 
 type Segment = {
   key: string;
@@ -59,10 +58,12 @@ function Blocks({
   segment,
   locked,
   onClick,
+  flame,
 }: {
   segment: Segment;
   locked: boolean;
   onClick: () => void;
+  flame: FlameConfig;
 }) {
   const draggable = useDraggable({
     id: segment.key,
@@ -82,12 +83,13 @@ function Blocks({
       type="button"
       aria-label={`${segment.type === 'task' ? '待办' : '课程'} ${item.title} ${format(segment.start, 'HH:mm')}至${format(segment.end, 'HH:mm')}${segment.type === 'task' ? (locked ? '，日程已锁定' : '，可拖动') : '，编辑整个课程规则'}`}
       data-testid={`block-${segment.task?.id || segment.course?.id}`}
-      className={`schedule-block ${segment.type} ${segment.task && SHOW_FIRE_PREVIEW ? 'has-fire' : ''} ${draggable.isDragging ? 'dragging' : ''} ${height < 110 ? 'short' : ''} ${height < 55 ? 'compact' : ''}`}
+      className={`schedule-block ${segment.type} ${segment.task ? 'procedural-fire' : ''} ${draggable.isDragging ? 'dragging' : ''} ${height < 110 ? 'short' : ''} ${height < 55 ? 'compact' : ''}`}
       style={
         {
           top,
           height,
-          '--block-height': `${height}px`,
+          '--core-inset-y': `${Math.max(15, Math.round((1 - flame.coreRatio) * 44))}%`,
+          '--core-inset-x': `${Math.max(16, Math.round((1 - flame.coreRatio) * 44) - 2)}%`,
           left: `calc(${((segment.lane || 0) / (segment.lanes || 1)) * 100}% + var(--block-inset, 4px))`,
           width: `calc(${100 / (segment.lanes || 1)}% - var(--block-gap, 8px))`,
           transform: transform ? `translate3d(${transform.x}px,${transform.y}px,0)` : undefined,
@@ -97,25 +99,7 @@ function Blocks({
       onClick={onClick}
       title={`${item.title}\n${format(segment.start, 'MM月dd日 HH:mm')} – ${format(segment.end, 'MM月dd日 HH:mm')}${segment.task ? `\nDDL：${format(new Date(segment.task.dueAt), 'MM月dd日 HH:mm')}` : ''}`}
     >
-      {segment.task && SHOW_FIRE_PREVIEW && (
-        <div
-          className="task-fire"
-          aria-hidden="true"
-          style={
-            {
-              '--fire-phase': `${-(Array.from(segment.task.id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % 50) / 10}s`,
-            } as CSSProperties
-          }
-        >
-          <div className="fire-surface" />
-          <i className="flame-edge flame-top" />
-          <i className="flame-edge flame-bottom" />
-          <i className="flame-edge flame-left" />
-          <i className="flame-edge flame-right" />
-          <i className="block-ember ember-one" />
-          <i className="block-ember ember-two" />
-        </div>
-      )}
+      {segment.task && <FlameCanvas config={flame} taskId={segment.task.id} />}
       <div className="block-content">
         <div className="block-label">
           <span>{segment.type === 'task' ? '待办' : '课程'}</span>
@@ -129,7 +113,6 @@ function Blocks({
             {segment.course?.location && ` · ${segment.course.location}`}
           </small>
         )}
-        {height >= 110 && segment.task && <Mascot kind={segment.task.mascot} size={40} />}
         {segment.task && height >= 100 && (
           <div className="block-progress">
             <i
@@ -183,8 +166,8 @@ export default function Schedule({
   onNewCourse,
   onNewTask,
   onCourseSettings,
-  effects,
-  onToggleEffects,
+  onFlameChange,
+  ready,
   compact = false,
 }: {
   tasks: Task[];
@@ -197,8 +180,8 @@ export default function Schedule({
   onNewCourse: () => void;
   onNewTask: () => void;
   onCourseSettings: () => void;
-  effects: boolean;
-  onToggleEffects: () => void;
+  onFlameChange: (config: FlameConfig, expectedVersion: number) => void;
+  ready: boolean;
   compact?: boolean;
 }) {
   const [offset, setOffset] = useState(0);
@@ -206,6 +189,55 @@ export default function Schedule({
   const [layout, setLayout] = useState<'week' | 'day'>('week');
   const [selectedDay, setSelectedDay] = useState(0);
   const [locked, setLocked] = useState(true);
+  const [tunerOpen, setTunerOpen] = useState(false);
+  const [flameDraft, setFlameDraft] = useState<FlameConfig | null>(null);
+  const pendingFlame = useRef<{
+    value: FlameConfig;
+    version: number;
+    save: typeof onFlameChange;
+  } | null>(null);
+  const flame = flameDraft || settings.flame || DEFAULT_FLAME;
+  function changeFlame(value: FlameConfig) {
+    if (locked || !ready) return;
+    const pending = pendingFlame.current;
+    pendingFlame.current = {
+      value,
+      version: pending?.version ?? settings.version,
+      save: pending?.save ?? onFlameChange,
+    };
+    setFlameDraft(value);
+  }
+  function flushFlame() {
+    const pending = pendingFlame.current;
+    if (!pending) return true;
+    try {
+      pending.save(pending.value, pending.version);
+      pendingFlame.current = null;
+      setFlameDraft(null);
+      return true;
+    } catch (error) {
+      setNotice((error as Error).message);
+      return false;
+    }
+  }
+  useEffect(() => {
+    if (!flameDraft) return;
+    const timer = setTimeout(flushFlame, 650);
+    return () => clearTimeout(timer);
+  }, [flameDraft]);
+  useEffect(
+    () => () => {
+      const pending = pendingFlame.current;
+      if (pending) {
+        try {
+          pending.save(pending.value, pending.version);
+        } catch {
+          console.warn('Flame preference save unavailable');
+        }
+      }
+    },
+    [],
+  );
   const [showTasks, setShowTasks] = useState(true);
   const [showCourses, setShowCourses] = useState(true);
   const [now, setNow] = useState(new Date());
@@ -229,24 +261,6 @@ export default function Schedule({
   useEffect(() => {
     if (scroll.current) scroll.current.scrollTop = minuteToY(420);
   }, []);
-  useEffect(() => {
-    const flames = section.current?.querySelectorAll('.task-fire');
-    if (!flames?.length) return;
-    if (!('IntersectionObserver' in window)) {
-      flames.forEach((element) => element.classList.add('flame-visible'));
-      return;
-    }
-    // One observer per calendar; offscreen flames don't keep animating.
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries)
-          entry.target.classList.toggle('flame-visible', entry.isIntersecting);
-      },
-      { root: scroll.current, rootMargin: '30px' },
-    );
-    flames.forEach((element) => observer.observe(element));
-    return () => observer.disconnect();
-  }, [tasks, courses, layout, offset, selectedDay, expanded]);
   useEffect(() => {
     if (!expanded || !section.current) return;
     const previousOverflow = document.body.style.overflow;
@@ -514,10 +528,11 @@ export default function Schedule({
           </button>
           <button
             className="icon-button calendar-effects"
-            aria-label="日程动态效果"
-            title={effects ? '暂停火焰与星空动画' : '开启动画'}
-            aria-pressed={effects}
-            onClick={onToggleEffects}
+            aria-label="火焰调节"
+            title="展开或收起火焰参数"
+            aria-expanded={tunerOpen}
+            aria-controls="flame-tuner"
+            onClick={() => setTunerOpen((value) => !value)}
           >
             <Flame size={18} />
           </button>
@@ -525,6 +540,7 @@ export default function Schedule({
             aria-pressed={!locked}
             className={`button small lock-button ${locked ? '' : 'unlocked'}`}
             onClick={() => {
+              if (!locked && !flushFlame()) return;
               setLocked((v) => !v);
               setNotice('');
             }}
@@ -533,6 +549,14 @@ export default function Schedule({
             <span>{locked ? '已锁定' : '已解锁'}</span>
           </button>
         </div>
+      </div>
+      <div id="flame-tuner" hidden={!tunerOpen}>
+        <FlameTuner
+          value={flame}
+          locked={locked || !ready}
+          onChange={changeFlame}
+          onCommit={flushFlame}
+        />
       </div>
       {layout === 'day' && (
         <div className="day-selector" role="group" aria-label="选择查看日期">
@@ -621,6 +645,7 @@ export default function Schedule({
                         key={segment.key}
                         segment={segment}
                         locked={locked}
+                        flame={flame}
                         onClick={() => {
                           if (Date.now() - justDragged.current < 250) return;
                           segment.task ? onEditTask(segment.task) : onEditCourse(segment.course!);

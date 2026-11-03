@@ -151,7 +151,12 @@ export function SemesterSettings({
               throw new Error('请选择第一周的周一，避免周次歧义。');
             if (periods.some((p) => !p.label || p.start >= p.end))
               throw new Error('请检查每一节课的名称与起止时间。');
-            onSave({ semesterStart: start, semesterWeeks: weeks, periods });
+            onSave({
+              ...stripEntity(settings),
+              semesterStart: start,
+              semesterWeeks: weeks,
+              periods,
+            });
             onClose();
           } catch (err) {
             setError((err as Error).message);

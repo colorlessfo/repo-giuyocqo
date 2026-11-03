@@ -1,6 +1,7 @@
 import { addDays, format, startOfDay, startOfWeek } from 'date-fns';
 import type { Course, Entity, Settings, State, Task } from './types';
 import { courseOccursOn } from '../shared/time.mjs';
+import { DEFAULT_FLAME } from '../shared/flame.mjs';
 
 export const uid = () => crypto.randomUUID();
 export const dateKey = (date: Date) => format(date, 'yyyy-MM-dd');
@@ -36,6 +37,7 @@ export function makeSettings(): Settings {
     id: 'main',
     version: 1,
     semesterStart: dateKey(startOfWeek(new Date(), { weekStartsOn: 1 })),
+    flame: { ...DEFAULT_FLAME },
     semesterWeeks: 20,
     periods: [
       { label: '第1节', start: '08:00', end: '08:45' },

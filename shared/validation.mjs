@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_FLAME } from './flame.mjs';
 const text = (max) => z.string().trim().max(max);
 const clock = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const day = z
@@ -14,6 +15,13 @@ export const entityId = z
   .max(100)
   .regex(/^[a-zA-Z0-9_-]+$/);
 const palettes = z.enum(['violet', 'blue', 'peach', 'rose', 'slate']);
+export const flameSchema = z.object({
+  speed: z.number().min(0.2).max(1.6),
+  tongueSize: z.number().min(0.6).max(1.6),
+  coreRatio: z.number().min(0.35).max(0.65),
+  pixelSize: z.number().int().min(3).max(7),
+  animated: z.boolean().default(true),
+});
 export const schemas = {
   notes: z.object({
     title: text(200).default(''),
@@ -50,6 +58,7 @@ export const schemas = {
       (v) => new Date(`${v}T12:00:00Z`).getUTCDay() === 1,
       '第一周起始日须为周一',
     ),
+    flame: flameSchema.default(DEFAULT_FLAME),
     semesterWeeks: z.number().int().min(1).max(60),
     periods: z
       .array(

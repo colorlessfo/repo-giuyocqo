@@ -13,6 +13,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { schemas, changeSchema } from '../shared/validation.mjs';
 import { createDatabase } from './database.mjs';
+import { DEFAULT_FLAME } from '../shared/flame.mjs';
 
 const scrypt = promisify(scryptCallback);
 const hashToken = (token) => createHash('sha256').update(token).digest('hex');
@@ -23,6 +24,7 @@ export function defaultSettings() {
   const key = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
   return {
     semesterStart: key,
+    flame: { ...DEFAULT_FLAME },
     semesterWeeks: 20,
     periods: [
       { label: '第1节', start: '08:00', end: '08:45' },
@@ -301,7 +303,15 @@ export async function createApp({
         seen.add(key);
         if (change.collection === 'settings' && (change.id !== 'main' || change.data === null))
           return res.status(400).json({ error: '学期设置不能删除。' });
-        if (change.data !== null) change.data = schemas[change.collection].parse(change.data);
+        if (change.data !== null) {
+          const legacySettings =
+            change.collection === 'settings' &&
+            typeof change.data === 'object' &&
+            !Object.hasOwn(change.data, 'flame');
+          change.data = schemas[change.collection].parse(change.data);
+          // Preserve old clients' canonical mutation hashes and their unrelated edits.
+          if (legacySettings) delete change.data.flame;
+        }
       }
       const payloadHash = hashToken(JSON.stringify(body.changes));
       const result = await db.write(req.user.id, async (c) => {
@@ -337,15 +347,29 @@ export async function createApp({
           };
         const upsert =
           'INSERT INTO entities VALUES (?,?,?,?,?) ON CONFLICT(user_id,collection,id) DO UPDATE SET data=excluded.data,version=excluded.version';
-        for (const change of body.changes)
+        for (const change of body.changes) {
+          let data = change.data;
+          if (change.collection === 'settings' && data && !Object.hasOwn(data, 'flame')) {
+            const current = await c.get(
+              "SELECT data FROM entities WHERE user_id=? AND collection='settings' AND id='main'",
+              req.user.id,
+            );
+            data = {
+              ...data,
+              flame: current?.data
+                ? JSON.parse(current.data).flame || DEFAULT_FLAME
+                : DEFAULT_FLAME,
+            };
+          }
           await c.run(
             upsert,
             req.user.id,
             change.collection,
             change.id,
-            change.data === null ? null : JSON.stringify(change.data),
+            data === null ? null : JSON.stringify(data),
             change.expectedVersion + 1,
           );
+        }
         const validCategories = new Set(
           (
             await c.all(

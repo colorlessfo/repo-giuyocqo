@@ -448,3 +448,38 @@ test('notebook content, archives, conflicts and tombstones are private and durab
   assert.equal(removed.body.versions['notes/my-note'], 4);
   assert.equal((await mutate(alice.cookie, [change(3, note)])).status, 409);
 });
+
+test('flame preferences persist per account, reject invalid values and survive legacy semester writes', async (t) => {
+  const { register, request, mutate } = await setup(t);
+  const alice = await register('flame-alice@example.com');
+  const bob = await register('flame-bob@example.com');
+  const initial = (await request('/api/state', undefined, alice.cookie)).body.settings[0];
+  const { id, version, flame, ...semester } = initial;
+  const custom = { ...flame, speed: 1.1, coreRatio: 0.6, animated: false };
+  const change = (v, data) => ({ collection: 'settings', id: 'main', expectedVersion: v, data });
+  const saved = await mutate(alice.cookie, [change(1, { ...semester, flame: custom })]);
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.body.settings[0].flame, custom);
+  assert.deepEqual(
+    (await request('/api/state', undefined, bob.cookie)).body.settings[0].flame,
+    flame,
+  );
+  const mutationId = randomUUID();
+  const legacy = [change(2, { ...semester, semesterWeeks: 18 })];
+  const modified = await mutate(alice.cookie, legacy, mutationId);
+  assert.equal(modified.status, 200);
+  assert.equal(modified.body.settings[0].semesterWeeks, 18);
+  assert.deepEqual(modified.body.settings[0].flame, custom);
+  const replay = await mutate(alice.cookie, legacy, mutationId);
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.revision, modified.body.revision);
+  assert.equal(
+    (await mutate(alice.cookie, [change(3, { ...semester, flame: { ...custom, pixelSize: 100 } })]))
+      .status,
+    400,
+  );
+  assert.equal((await mutate(alice.cookie, [change(2, { ...semester, flame })])).status, 409);
+  const after = (await request('/api/state', undefined, alice.cookie)).body.settings[0];
+  assert.deepEqual(after.flame, custom);
+  assert.equal(after.semesterWeeks, 18);
+});

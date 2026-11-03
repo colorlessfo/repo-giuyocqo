@@ -35,9 +35,17 @@ export interface Period {
   end: string;
 }
 export interface Settings extends Entity {
+  flame: FlameConfig;
   semesterStart: string;
   semesterWeeks: number;
   periods: Period[];
+}
+export interface FlameConfig {
+  speed: number;
+  tongueSize: number;
+  coreRatio: number;
+  pixelSize: number;
+  animated: boolean;
 }
 export interface Note extends Entity {
   title: string;

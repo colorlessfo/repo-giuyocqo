@@ -28,7 +28,6 @@ import {
   UserRound,
   KeyRound,
   X,
-  Flame,
 } from 'lucide-react';
 import { api, ApiError, SyncStore } from './store';
 import type { Category, Course, Task, User } from './types';
@@ -42,7 +41,8 @@ import {
   stripEntity,
   uid,
 } from './lib';
-import { Mascot, Modal, Field, NightSky } from './ui';
+import { Mascot, Modal, Field } from './ui';
+import NightSky from './NightSky';
 import Notepad from './Notepad';
 import TaskEditor from './TaskEditor';
 import Schedule from './Schedule';
@@ -178,6 +178,7 @@ export default function App() {
   const visibleCategory = data.categories.find((c) => c.id === category);
   const schedule = (
     <Schedule
+      key={store.userId}
       tasks={data.tasks}
       courses={data.courses}
       settings={settings}
@@ -188,14 +189,24 @@ export default function App() {
       onNewCourse={() => setCourseEditor('new')}
       onNewTask={() => setTaskEditor('new')}
       onCourseSettings={() => setPanel('courses')}
-      effects={effects}
-      onToggleEffects={toggleEffects}
+      ready={view.loaded}
+      onFlameChange={(flame, expectedVersion) => {
+        const current = store.getSnapshot().data.settings[0] || settings;
+        store.commit([
+          {
+            collection: 'settings',
+            id: 'main',
+            expectedVersion,
+            data: { ...stripEntity(current), flame },
+          },
+        ]);
+      }}
       compact={page === 'tasks'}
     />
   );
   return (
     <div className={`app-shell ${effects ? '' : 'effects-paused'}`}>
-      <NightSky />
+      <NightSky animate={effects} />
       <aside className="sidebar">
         <a
           href="#"
@@ -302,12 +313,12 @@ export default function App() {
           <div className="topbar-right">
             <button
               className="icon-button effects-toggle"
-              aria-label="动态火焰与星空"
-              title={effects ? '暂停动态效果' : '开启动效'}
+              aria-label="星空与小伙伴动态效果"
+              title={effects ? '暂停星空与小伙伴动画' : '开启星空与小伙伴动画'}
               aria-pressed={effects}
               onClick={toggleEffects}
             >
-              <Flame size={19} />
+              <Sparkles size={19} />
             </button>
             <span className="today-date">
               <Sun size={17} />

@@ -121,14 +121,6 @@ export function Mascot({
   );
 }
 
-export function NightSky() {
-  return (
-    <div className="night-sky" aria-hidden="true">
-      <div className="pixel-stars" />
-      <div className="pixel-horizon" />
-    </div>
-  );
-}
 export function Field({
   label,
   children,
