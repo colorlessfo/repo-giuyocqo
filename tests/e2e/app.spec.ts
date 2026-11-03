@@ -1,7 +1,8 @@
 import { test as base, expect, type Page, type BrowserContext } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { createDatabase } from '../../server/database.mjs';
 
 const password = 'qiyu-test-password-2026';
 function shanghaiDay(offset = 0, clock = '12:00') {
@@ -65,6 +66,116 @@ async function waitForSaved(page: Page) {
     timeout: 15000,
   });
 }
+
+// Seed the final seconds of this test account's session. The real production
+// timer, claim and purchase endpoints still run; no test clock is exposed by the app.
+async function finishFocusSoon(page: Page) {
+  const user = (await (await page.request.get('/api/auth/me')).json()).user;
+  const grove = (await (await page.request.get('/api/grove')).json()).state;
+  grove.session.endsAt = Date.now() + 2500;
+  grove.version++;
+  const databaseUrl = process.env.QIYU_TEST_DATABASE_URL_FILE
+    ? JSON.parse(await readFile(process.env.QIYU_TEST_DATABASE_URL_FILE, 'utf8')).url
+    : null;
+  const db = await createDatabase({ dataDir: '/tmp/qiyu-ddl-e2e', databaseUrl });
+  try {
+    await db.write(user.id, (c) =>
+      c.run('UPDATE groves SET data=? WHERE user_id=?', JSON.stringify(grove), user.id),
+    );
+  } finally {
+    await db.close();
+  }
+}
+
+test('fox grove focus survives reload, grants loot, retries lost purchases once and synchronizes outfits', async ({
+  page,
+  context,
+  browser,
+}, testInfo) => {
+  const account = await register(context);
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/');
+  const entry = () => page.locator('.grove-focus-button:visible, .grove-mobile-entry:visible');
+  await entry().click();
+  await page.getByLabel('这次想专注什么？').fill('陪狐狸读一章书');
+  await page.getByLabel('专注分钟', { exact: true }).fill('25');
+  await page.getByRole('button', { name: '开始专注探险', exact: true }).click();
+  await expect(page.getByRole('button', { name: '暂停休息', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '暂停休息', exact: true }).click();
+  await expect(page.getByRole('button', { name: '继续专注', exact: true })).toBeEnabled();
+  const paused = await page.getByRole('timer').textContent();
+  await page.waitForTimeout(1200);
+  expect(await page.getByRole('timer').textContent()).toBe(paused);
+  await page.reload();
+  await entry().click();
+  await expect(page.getByRole('button', { name: '继续专注', exact: true })).toBeEnabled();
+  expect(await page.getByRole('timer').textContent()).toBe(paused);
+  await page.getByRole('button', { name: '继续专注', exact: true }).click();
+  await expect(page.getByRole('button', { name: '暂停休息', exact: true })).toBeEnabled();
+  await page.locator('.grove-preview').getByRole('button', { name: '抚摸探索中的小狐狸' }).click();
+  await expect(page.locator('.grove-preview .grove-speech')).toBeVisible();
+  await finishFocusSoon(page);
+  await page.reload();
+  await entry().click();
+  await expect(page.getByRole('button', { name: '领取本次战利品', exact: true })).toBeEnabled({
+    timeout: 12000,
+  });
+  await page.getByRole('button', { name: '领取本次战利品', exact: true }).click();
+  await expect(page.locator('.grove-reward-card')).toContainText('+50 橡果');
+  await expect(page.locator('.grove-wallet')).toContainText('50');
+  await page.getByRole('button', { name: '奇遇商店', exact: true }).click();
+  let dropped = false;
+  await page.route('**/api/grove/action', async (route) => {
+    const data = route.request().postDataJSON();
+    if (data.type === 'buy' && data.itemId === 'snow' && !dropped) {
+      dropped = true;
+      await route.fetch();
+      await route.abort('failed');
+    } else await route.continue();
+  });
+  await page.getByRole('button', { name: '兑换霜雪小狐', exact: true }).click();
+  await expect
+    .poll(async () => (await (await page.request.get('/api/grove')).json()).state.acorns)
+    .toBe(20);
+  await page.reload();
+  await entry().click();
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get('/api/grove')).json()).state.owned.filter(
+          (id: string) => id === 'snow',
+        ).length,
+    )
+    .toBe(1);
+  await expect(page.locator('.grove-wallet')).toContainText('20');
+  await page.getByRole('button', { name: '奇遇商店', exact: true }).click();
+  await expect(page.getByRole('button', { name: '已穿戴霜雪小狐', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '兑换南瓜暖灯', exact: true }).click();
+  await expect(page.getByRole('button', { name: '收起南瓜暖灯', exact: true })).toBeEnabled();
+  await expect(page.locator('.grove-preview .grove-lantern')).toHaveCount(5);
+  const other = await browser.newContext({ baseURL: 'http://127.0.0.1:3100', locale: 'zh-CN' });
+  try {
+    await other.request.post('/api/auth/login', { data: { account, password } });
+    const second = await other.newPage();
+    await second.goto('/');
+    await expect(second.locator('.grove-trail .grove-scene')).toHaveAttribute('data-skin', 'snow');
+    const remote = await (await other.request.get('/api/grove')).json();
+    expect(remote.state.acorns).toBe(0);
+    expect(remote.state.materials.seed).toBe(0);
+    expect(remote.state.decorations).toEqual(['lanterns']);
+    await register(other);
+    const isolated = await (await other.request.get('/api/grove')).json();
+    expect(isolated.state.owned).toEqual(['ember', 'burrow']);
+    expect(isolated.state.completedSessions).toBe(0);
+  } finally {
+    await other.close();
+  }
+  await page.getByRole('button', { name: '背包与记录', exact: true }).click();
+  await expect(page.locator('.grove-history')).toContainText('陪狐狸读一章书');
+  await page.screenshot({ path: testInfo.outputPath('grove-collection.png') });
+  expect(errors).toEqual([]);
+});
 
 test('white random sky has varied brightness, no repeating layout, and remains stable across page navigation', async ({
   page,

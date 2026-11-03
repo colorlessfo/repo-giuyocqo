@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { schemas, changeSchema } from '../shared/validation.mjs';
 import { createDatabase } from './database.mjs';
 import { DEFAULT_FLAME } from '../shared/flame.mjs';
+import { installGrove } from './grove.mjs';
 
 const scrypt = promisify(scryptCallback);
 const hashToken = (token) => createHash('sha256').update(token).digest('hex');
@@ -46,6 +47,7 @@ export async function createApp({
   databaseUrl = process.env.DATABASE_URL,
   databaseSchema = 'qiyu',
   disableRateLimit = false,
+  groveNow = Date.now,
 } = {}) {
   const db = await createDatabase({ dataDir, databaseUrl, schema: databaseSchema });
   const app = express();
@@ -410,6 +412,7 @@ export async function createApp({
       next(err);
     }
   });
+  installGrove(app, { db, requireAuth, limiter, now: groveNow });
   app.use('/api', (_req, res) => res.status(404).json({ error: '接口不存在。' }));
   app.use((err, _req, res, _next) => {
     if (err instanceof z.ZodError)

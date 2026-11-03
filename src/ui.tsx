@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cloneElement, isValidElement, useId, type ReactNode, type ReactElement } from 'react';
 import type { MascotKind } from './types';
+import type { FoxSkin } from './groveTypes';
 
 export function Modal({
   title,
@@ -58,16 +59,24 @@ export function Mascot({
   kind = 'star',
   size = 48,
   className = '',
+  skin = 'ember',
 }: {
   kind?: MascotKind;
   size?: number;
   className?: string;
+  skin?: FoxSkin;
 }) {
   const fox = kind === 'star',
     dog = kind === 'cloud',
     rabbit = kind === 'bunny';
-  const fur = fox ? '#ee873d' : dog ? '#c79b68' : rabbit ? '#e1dce4' : '#859ac8';
-  const light = fox ? '#ffb45a' : dog ? '#e9c595' : rabbit ? '#fff2dc' : '#bccbe5';
+  const foxPalette = {
+    ember: ['#ee873d', '#ffb45a'],
+    snow: ['#dce8f1', '#ffffff'],
+    dusk: ['#9a87d4', '#cab8f5'],
+    sun: ['#d99a2e', '#ffdc7b'],
+  }[skin];
+  const fur = fox ? foxPalette[0] : dog ? '#c79b68' : rabbit ? '#e1dce4' : '#859ac8';
+  const light = fox ? foxPalette[1] : dog ? '#e9c595' : rabbit ? '#fff2dc' : '#bccbe5';
   return (
     <svg
       width={size}
