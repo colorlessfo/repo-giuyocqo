@@ -49,7 +49,6 @@ import Schedule from './Schedule';
 import CourseImport from './CourseImport';
 import CourseEditor from './CourseEditor';
 import Auth from './Auth';
-import FoxGrove from './FoxGrove';
 
 type Panel =
   'categories' | 'semester' | 'data' | 'import' | 'account' | 'sync' | 'about' | 'courses' | null;
@@ -57,8 +56,6 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [checking, setChecking] = useState(true);
-  const [groveSidebar, setGroveSidebar] = useState<HTMLDivElement | null>(null);
-  const [groveMobile, setGroveMobile] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     let active = true;
     api<{ user: User }>('/api/auth/me')
@@ -278,7 +275,16 @@ export default function App() {
           </button>
         </nav>
         <div className="sidebar-bottom">
-          <div className="grove-sidebar-slot" ref={setGroveSidebar} />
+          <div className="sidebar-art">
+            <span className="little-spark spark-one">✧</span>
+            <Mascot size={88} />
+            <span className="little-spark spark-two">✦</span>
+            <p>
+              带上火把，
+              <br />
+              点亮下一段奇遇。
+            </p>
+          </div>
           <button className="sidebar-import" onClick={() => setPanel('import')}>
             <ImagePlus size={19} />
             <span>图片导入课表</span>
@@ -294,16 +300,6 @@ export default function App() {
           </button>
         </div>
       </aside>
-      <FoxGrove
-        key={store.userId}
-        userId={store.userId}
-        demo={!user}
-        ready={!checking}
-        sidebarSlot={groveSidebar}
-        mobileSlot={groveMobile}
-        effects={effects}
-        tasks={activeTasks}
-      />
       <div
         className={`workspace ${page === 'schedule' ? 'schedule-workspace' : page === 'notes' ? 'notes-workspace' : ''}`}
       >
@@ -377,7 +373,6 @@ export default function App() {
               </button>
             </div>
           )}
-          <div className="grove-mobile-slot" ref={setGroveMobile} />
           {page === 'tasks' && (
             <>
               <div className="page-intro">

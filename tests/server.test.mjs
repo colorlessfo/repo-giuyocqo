@@ -18,19 +18,13 @@ const task = {
   completed: false,
   completedAt: null,
 };
-async function setup(t, disableRateLimit = true, extra = {}) {
+async function setup(t, disableRateLimit = true) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'qiyu-api-'));
   const databaseUrl = process.env.QIYU_TEST_DATABASE_URL_FILE
     ? JSON.parse(await readFile(process.env.QIYU_TEST_DATABASE_URL_FILE, 'utf8')).url
     : null;
   const databaseSchema = `qiyu_test_${randomUUID().replaceAll('-', '')}`;
-  const { app, db } = await createApp({
-    dataDir,
-    databaseUrl,
-    databaseSchema,
-    disableRateLimit,
-    ...extra,
-  });
+  const { app, db } = await createApp({ dataDir, databaseUrl, databaseSchema, disableRateLimit });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.on('listening', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -488,155 +482,4 @@ test('flame preferences persist per account, reject invalid values and survive l
   const after = (await request('/api/state', undefined, alice.cookie)).body.settings[0];
   assert.deepEqual(after.flame, custom);
   assert.equal(after.semesterWeeks, 18);
-});
-
-test('grove timers use server time, pause honestly, synchronize and grant a reward exactly once', async (t) => {
-  let clock = 1800000000000;
-  const { register, request } = await setup(t, true, { groveNow: () => clock });
-  assert.equal((await request('/api/grove')).status, 401);
-  const alice = await register('grove-alice');
-  const bob = await register('grove-bob');
-  const action = (body, cookie = alice.cookie) => request('/api/grove/action', body, cookie);
-  const start = {
-    type: 'start',
-    minutes: 25,
-    label: '读一章书',
-    expectedVersion: 0,
-    actionId: randomUUID(),
-  };
-  const begun = await action(start);
-  assert.equal(begun.status, 200);
-  const sessionId = begun.body.state.session.id;
-  assert.equal(begun.body.state.session.endsAt, clock + 25 * 60000);
-  clock += 10_000;
-  assert.equal((await action(start)).body.state.version, 1);
-  assert.equal((await action({ ...start, minutes: 60 })).status, 409);
-  assert.equal(
-    (
-      await action({
-        type: 'claim',
-        sessionId,
-        expectedVersion: 1,
-        actionId: randomUUID(),
-        serverNow: clock + 99999999,
-      })
-    ).status,
-    409,
-  );
-  assert.equal((await request('/api/grove', undefined, bob.cookie)).body.state.session, null);
-  const login = await request('/api/auth/login', {
-    account: 'grove-alice',
-    password: 'test-password-123',
-  });
-  assert.equal(
-    (await request('/api/grove', undefined, login.cookie)).body.state.session.id,
-    sessionId,
-  );
-  clock += 590_000;
-  const pause = await action({
-    type: 'pause',
-    sessionId,
-    expectedVersion: 1,
-    actionId: randomUUID(),
-  });
-  assert.equal(pause.body.state.session.remainingMs, 15 * 60000);
-  clock += 3_600_000;
-  assert.equal(
-    (await action({ type: 'claim', sessionId, expectedVersion: 2, actionId: randomUUID() })).status,
-    409,
-  );
-  const resumed = await action(
-    { type: 'resume', sessionId, expectedVersion: 2, actionId: randomUUID() },
-    login.cookie,
-  );
-  assert.equal(resumed.body.state.session.endsAt, clock + 15 * 60000);
-  clock += 15 * 60000 - 1;
-  const claim = { type: 'claim', sessionId, expectedVersion: 3, actionId: randomUUID() };
-  assert.equal((await action(claim)).status, 409);
-  clock++;
-  const contenders = [claim, { ...claim, actionId: randomUUID() }];
-  const results = await Promise.all(contenders.map((input) => action(input)));
-  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
-  const winner = contenders[results.findIndex((r) => r.status === 200)];
-  const replay = await action(winner);
-  assert.equal(replay.status, 200);
-  assert.equal(replay.body.state.acorns, 50);
-  assert.equal(replay.body.state.completedSessions, 1);
-  assert.equal(replay.body.state.totalMinutes, 25);
-  assert.equal(replay.body.state.materials.seed, 1);
-  assert.equal(replay.body.state.history.length, 1);
-  assert.equal(replay.body.state.session, null);
-  assert.equal((await request('/api/grove', undefined, bob.cookie)).body.state.acorns, 0);
-});
-
-test('grove shop exchanges earned rewards atomically, owns items privately and preserves task data', async (t) => {
-  let clock = 1800000000000;
-  const { register, request, dataDir, databaseUrl, databaseSchema } = await setup(t, true, {
-    groveNow: () => clock,
-  });
-  const user = await register('grove-shop');
-  let state = (await request('/api/grove', undefined, user.cookie)).body.state;
-  const action = async (body) => {
-    const result = await request(
-      '/api/grove/action',
-      { actionId: randomUUID(), expectedVersion: state.version, ...body },
-      user.cookie,
-    );
-    if (result.body.state) state = result.body.state;
-    return result;
-  };
-  const original = (await request('/api/state', undefined, user.cookie)).body;
-  assert.equal((await action({ type: 'buy', itemId: 'snow' })).status, 409);
-  for (const minutes of [0, 181, 1.5])
-    assert.equal((await action({ type: 'start', minutes, label: '' })).status, 400);
-  for (let i = 0; i < 3; i++) {
-    assert.equal((await action({ type: 'start', minutes: 25, label: '专注工作' })).status, 200);
-    const sessionId = state.session.id;
-    clock += 25 * 60000;
-    assert.equal((await action({ type: 'claim', sessionId })).status, 200);
-  }
-  assert.equal(state.acorns, 150);
-  assert.deepEqual(state.materials, { seed: 1, amber: 1, moonstone: 1 });
-  const requests = ['treehouse', 'dusk'].map((itemId) => ({
-    type: 'buy',
-    itemId,
-    expectedVersion: state.version,
-    actionId: randomUUID(),
-  }));
-  const race = await Promise.all(
-    requests.map((body) => request('/api/grove/action', body, user.cookie)),
-  );
-  assert.deepEqual(race.map((r) => r.status).sort(), [200, 409]);
-  state = (await request('/api/grove', undefined, user.cookie)).body.state;
-  const second = requests[race.findIndex((r) => r.status === 409)].itemId;
-  assert.equal((await action({ type: 'buy', itemId: second })).status, 200);
-  assert.equal(state.acorns, 20);
-  assert.equal(state.materials.amber, 0);
-  assert.equal(state.materials.moonstone, 0);
-  assert.equal((await action({ type: 'buy', itemId: 'treehouse' })).status, 409);
-  assert.equal((await action({ type: 'equip', itemId: 'sun', enabled: true })).status, 409);
-  assert.equal((await action({ type: 'buy', itemId: 'fake', acorns: -10000 })).status, 400);
-  assert.equal((await action({ type: 'equip', itemId: 'ember', enabled: true })).status, 200);
-  assert.equal(state.skin, 'ember');
-  assert.equal((await action({ type: 'buy', itemId: 'lanterns' })).status, 200);
-  assert.equal(state.acorns, 0);
-  assert.deepEqual(state.decorations, ['lanterns']);
-  assert.equal((await action({ type: 'equip', itemId: 'lanterns', enabled: false })).status, 200);
-  assert.deepEqual(state.decorations, []);
-  const cancelled = await action({ type: 'start', minutes: 1, label: '这次先休息' });
-  assert.equal(cancelled.status, 200);
-  assert.equal((await action({ type: 'cancel', sessionId: state.session.id })).status, 200);
-  assert.equal(state.completedSessions, 3);
-  assert.deepEqual((await request('/api/state', undefined, user.cookie)).body, original);
-  const restarted = await createApp({
-    dataDir,
-    databaseUrl,
-    databaseSchema,
-    disableRateLimit: true,
-  });
-  t.after(() => restarted.db.close());
-  const restored = await restarted.db.read((c) =>
-    c.get('SELECT data FROM groves WHERE user_id=?', user.body.user.id),
-  );
-  assert.deepEqual(JSON.parse(restored.data), state);
 });

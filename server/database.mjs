@@ -8,7 +8,6 @@ const tables = (schema = '') => `
   CREATE TABLE IF NOT EXISTS ${schema}sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES ${schema}users(id) ON DELETE CASCADE, expires_at BIGINT NOT NULL);
   CREATE TABLE IF NOT EXISTS ${schema}entities (user_id TEXT NOT NULL REFERENCES ${schema}users(id) ON DELETE CASCADE, collection TEXT NOT NULL, id TEXT NOT NULL, data TEXT, version INTEGER NOT NULL, PRIMARY KEY(user_id, collection, id));
   CREATE TABLE IF NOT EXISTS ${schema}mutations (user_id TEXT NOT NULL REFERENCES ${schema}users(id) ON DELETE CASCADE, id TEXT NOT NULL, payload_hash TEXT NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY(user_id,id));
-  CREATE TABLE IF NOT EXISTS ${schema}groves (user_id TEXT PRIMARY KEY REFERENCES ${schema}users(id) ON DELETE CASCADE, data TEXT NOT NULL);
   CREATE INDEX IF NOT EXISTS session_expiry ON ${schema}sessions(expires_at);
 `;
 
