@@ -33,18 +33,18 @@ function createSky(width: number, height: number): Sky {
     Math.sqrt(-2 * Math.log(Math.max(1e-9, random()))) * Math.cos(2 * Math.PI * random());
   const stars: Star[] = [],
     clouds: Cloud[] = [];
-  const density = Math.min(1000, Math.max(220, Math.round((width * height) / 2100)));
+  const density = Math.min(1100, Math.max(260, Math.round((width * height) / 1750)));
   const intercept = 0.77 + random() * 0.16,
     slope = 0.55 + random() * 0.4;
   function star(x: number, y: number, distant = false) {
     stars.push({
       x,
       y,
-      radius: distant ? 0.2 + random() ** 3 * 0.65 : 0.3 + random() ** 4 * 1.15,
-      light: distant ? 0.035 + random() ** 2 * 0.24 : 0.12 + random() ** 3 * 0.78,
+      radius: distant ? 0.3 + random() ** 2 * 0.7 : 0.45 + random() ** 3 * 1.25,
+      light: distant ? 0.13 + random() ** 2 * 0.35 : 0.28 + random() ** 2 * 0.72,
       phase: random() * Math.PI * 2,
-      pace: 0.15 + random() * 0.3,
-      twinkle: !distant && random() > 0.9,
+      pace: 0.7 + random() * 1.2,
+      twinkle: random() > (distant ? 0.84 : 0.32),
     });
   }
   for (let i = 0; i < density; i++) star(random(), random());
@@ -90,7 +90,7 @@ export default function NightSky({ animate }: { animate: boolean }) {
         y = star.y * height;
       if (star.radius > 0.95) {
         const glow = context.createRadialGradient(x, y, 0, x, y, star.radius * 4);
-        glow.addColorStop(0, `rgba(255,255,255,${light * 0.15})`);
+        glow.addColorStop(0, `rgba(255,255,255,${light * 0.25})`);
         glow.addColorStop(1, 'rgba(255,255,255,0)');
         context.fillStyle = glow;
         context.fillRect(
@@ -113,14 +113,16 @@ export default function NightSky({ animate }: { animate: boolean }) {
       for (const star of model.stars)
         if (star.twinkle) {
           const variation =
-            animate && !motion.matches ? 0.83 + 0.17 * Math.sin(time * star.pace + star.phase) : 1;
+            animate && !motion.matches
+              ? 0.2 + 0.8 * ((1 + Math.sin(time * star.pace + star.phase)) / 2) ** 1.5
+              : 1;
           drawStar(ctx!, star, star.light * variation);
         }
     }
     function tick(time: number) {
       frame = null;
       if (!animate || motion.matches || document.hidden) return;
-      if (time - previous >= 1000 / 12) {
+      if (time - previous >= 1000 / 20) {
         paint(time / 1000);
         previous = time;
       }

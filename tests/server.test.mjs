@@ -18,13 +18,19 @@ const task = {
   completed: false,
   completedAt: null,
 };
-async function setup(t, disableRateLimit = true) {
+async function setup(t, disableRateLimit = true, extra = {}) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'qiyu-api-'));
   const databaseUrl = process.env.QIYU_TEST_DATABASE_URL_FILE
     ? JSON.parse(await readFile(process.env.QIYU_TEST_DATABASE_URL_FILE, 'utf8')).url
     : null;
   const databaseSchema = `qiyu_test_${randomUUID().replaceAll('-', '')}`;
-  const { app, db } = await createApp({ dataDir, databaseUrl, databaseSchema, disableRateLimit });
+  const { app, db } = await createApp({
+    dataDir,
+    databaseUrl,
+    databaseSchema,
+    disableRateLimit,
+    ...extra,
+  });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.on('listening', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -482,4 +488,179 @@ test('flame preferences persist per account, reject invalid values and survive l
   const after = (await request('/api/state', undefined, alice.cookie)).body.settings[0];
   assert.deepEqual(after.flame, custom);
   assert.equal(after.semesterWeeks, 18);
+});
+
+test('focus records are private, server-timed, pause-aware, idempotent and accurate across midnight', async (t) => {
+  let clock = Date.parse('2026-11-03T15:55:00Z');
+  const { request, register } = await setup(t, true, { focusNow: () => clock });
+  assert.equal((await request('/api/focus')).status, 401);
+  const alice = await register('focus-alice'),
+    bob = await register('focus-bob');
+  const zone = 'Asia/Shanghai';
+  const get = () => request('/api/focus?timezone=' + zone, undefined, alice.cookie);
+  const act = (body, cookie = alice.cookie) =>
+    request('/api/focus/action', { timezone: zone, ...body }, cookie);
+  const input = {
+    type: 'start',
+    minutes: 25,
+    label: '午夜读书',
+    actionId: randomUUID(),
+    expectedVersion: 0,
+  };
+  const first = await act(input);
+  assert.equal(first.status, 200);
+  const sessionId = first.body.profile.active.id;
+  assert.equal((await act(input)).body.profile.version, 1);
+  assert.equal((await act({ ...input, minutes: 60 })).status, 409);
+  assert.equal(
+    (
+      await act({
+        type: 'finish',
+        sessionId,
+        actionId: randomUUID(),
+        expectedVersion: 1,
+        serverNow: clock + 99999999,
+      })
+    ).status,
+    409,
+  );
+  clock += 10 * 60000;
+  assert.equal(
+    (await act({ type: 'pause', sessionId, actionId: randomUUID(), expectedVersion: 1 })).body
+      .profile.active.remainingMs,
+    15 * 60000,
+  );
+  clock += 60 * 60000;
+  assert.equal((await get()).body.stats.totalMs, 10 * 60000);
+  assert.equal(
+    (await act({ type: 'finish', sessionId, actionId: randomUUID(), expectedVersion: 2 })).status,
+    409,
+  );
+  const login = await request('/api/auth/login', {
+    account: 'focus-alice',
+    password: 'test-password-123',
+  });
+  const resumed = await act(
+    { type: 'resume', sessionId, actionId: randomUUID(), expectedVersion: 2 },
+    login.cookie,
+  );
+  assert.equal(resumed.body.profile.active.endsAt, clock + 15 * 60000);
+  clock += 15 * 60000;
+  const commands = [
+    { type: 'finish', sessionId, actionId: randomUUID(), expectedVersion: 3 },
+    { type: 'finish', sessionId, actionId: randomUUID(), expectedVersion: 3 },
+  ];
+  const race = await Promise.all(commands.map((body) => act(body)));
+  assert.deepEqual(race.map((r) => r.status).sort(), [200, 409]);
+  const winner = commands[race.findIndex((r) => r.status === 200)];
+  assert.equal((await act(winner)).body.records.length, 1);
+  const saved = (await get()).body;
+  assert.equal(saved.profile.active, null);
+  assert.equal(saved.stats.totalMs, 25 * 60000);
+  assert.equal(saved.stats.completedSessions, 1);
+  assert.equal(saved.stats.days.at(-2).focusedMs, 5 * 60000);
+  assert.equal(saved.stats.days.at(-1).focusedMs, 20 * 60000);
+  assert.equal((await request('/api/focus', undefined, bob.cookie)).body.stats.totalMs, 0);
+  const start = await act({
+    type: 'start',
+    minutes: 30,
+    label: '提前结束也留下记录',
+    actionId: randomUUID(),
+    expectedVersion: 4,
+  });
+  clock += 2 * 60000;
+  const cancelled = await act({
+    type: 'cancel',
+    sessionId: start.body.profile.active.id,
+    actionId: randomUUID(),
+    expectedVersion: 5,
+  });
+  assert.equal(cancelled.body.stats.totalMs, 27 * 60000);
+  assert.equal(cancelled.body.stats.cancelledSessions, 1);
+  assert.equal(cancelled.body.records[0].status, 'cancelled');
+  for (const minutes of [0, 481, 1.5])
+    assert.equal(
+      (await act({ type: 'start', minutes, label: '', actionId: randomUUID(), expectedVersion: 6 }))
+        .status,
+      400,
+    );
+});
+
+test('sidebar ordering is versioned, survives older settings writers and stays account-private', async (t) => {
+  const { register, request, mutate } = await setup(t);
+  const alice = await register('order-alice'),
+    bob = await register('order-bob');
+  const initial = (await request('/api/state', undefined, alice.cookie)).body;
+  const { id, version, ...values } = initial.settings[0];
+  const ids = initial.categories.map((c) => c.id).reverse();
+  const sidebar = {
+    navigation: ['focus', 'tasks', 'notes', 'schedule'],
+    categories: ['none', ...ids],
+  };
+  const change = (v, data) => ({ collection: 'settings', id: 'main', expectedVersion: v, data });
+  assert.equal((await mutate(alice.cookie, [change(1, { ...values, sidebar })])).status, 200);
+  const legacyId = randomUUID(),
+    legacy = [change(2, { ...values, semesterWeeks: 18 })];
+  const saved = await mutate(alice.cookie, legacy, legacyId);
+  assert.deepEqual(saved.body.settings[0].sidebar, sidebar);
+  assert.equal((await mutate(alice.cookie, legacy, legacyId)).body.revision, saved.body.revision);
+  assert.equal(
+    (
+      await mutate(alice.cookie, [
+        change(2, { ...values, sidebar: { ...sidebar, navigation: ['tasks'] } }),
+      ])
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await mutate(alice.cookie, [
+        change(3, { ...values, sidebar: { ...sidebar, navigation: ['tasks', 'tasks'] } }),
+      ])
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await request('/api/state', undefined, bob.cookie)).body.settings[0].sidebar,
+    undefined,
+  );
+});
+
+test('focus pause segments and finished history persist when another app instance opens the database', async (t) => {
+  let clock = Date.parse('2026-11-04T08:00:00Z');
+  const { register, request, dataDir, databaseUrl, databaseSchema } = await setup(t, true, {
+    focusNow: () => clock,
+  });
+  const alice = await register('focus-durable');
+  const act = (body) =>
+    request('/api/focus/action', { actionId: randomUUID(), ...body }, alice.cookie);
+  const start = await act({ type: 'start', minutes: 2, label: '持久化专注', expectedVersion: 0 });
+  const sessionId = start.body.profile.active.id;
+  clock += 60000;
+  assert.equal((await act({ type: 'pause', sessionId, expectedVersion: 1 })).status, 200);
+  const another = await createApp({ dataDir, databaseUrl, databaseSchema, disableRateLimit: true });
+  try {
+    const persisted = JSON.parse(
+      (
+        await another.db.read((c) =>
+          c.get('SELECT data FROM focus_profiles WHERE user_id=?', alice.body.user.id),
+        )
+      ).data,
+    );
+    assert.equal(persisted.active.status, 'paused');
+    assert.equal(persisted.active.segments.length, 1);
+    assert.equal(persisted.active.remainingMs, 60000);
+    clock += 3600000;
+    assert.equal((await act({ type: 'resume', sessionId, expectedVersion: 2 })).status, 200);
+    clock += 60000;
+    assert.equal((await act({ type: 'finish', sessionId, expectedVersion: 3 })).status, 200);
+    const history = await another.db.read((c) =>
+      c.all('SELECT focused_ms,status FROM focus_history WHERE user_id=?', alice.body.user.id),
+    );
+    assert.equal(history.length, 1);
+    assert.equal(Number(history[0].focused_ms), 120000);
+    assert.equal(history[0].status, 'completed');
+  } finally {
+    await another.db.close();
+  }
 });

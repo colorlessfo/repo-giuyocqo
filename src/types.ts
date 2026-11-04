@@ -35,6 +35,7 @@ export interface Period {
   end: string;
 }
 export interface Settings extends Entity {
+  sidebar?: { navigation: string[]; categories: string[] };
   flame: FlameConfig;
   semesterStart: string;
   semesterWeeks: number;

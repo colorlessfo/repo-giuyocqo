@@ -9,6 +9,9 @@ const tables = (schema = '') => `
   CREATE TABLE IF NOT EXISTS ${schema}entities (user_id TEXT NOT NULL REFERENCES ${schema}users(id) ON DELETE CASCADE, collection TEXT NOT NULL, id TEXT NOT NULL, data TEXT, version INTEGER NOT NULL, PRIMARY KEY(user_id, collection, id));
   CREATE TABLE IF NOT EXISTS ${schema}mutations (user_id TEXT NOT NULL REFERENCES ${schema}users(id) ON DELETE CASCADE, id TEXT NOT NULL, payload_hash TEXT NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY(user_id,id));
   CREATE INDEX IF NOT EXISTS session_expiry ON ${schema}sessions(expires_at);
+  CREATE TABLE IF NOT EXISTS ${schema}focus_profiles (user_id TEXT PRIMARY KEY REFERENCES ${schema}users(id) ON DELETE CASCADE, data TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS ${schema}focus_history (user_id TEXT NOT NULL REFERENCES ${schema}users(id) ON DELETE CASCADE, id TEXT NOT NULL, data TEXT NOT NULL, ended_at BIGINT NOT NULL, focused_ms BIGINT NOT NULL, status TEXT NOT NULL, PRIMARY KEY(user_id,id));
+  CREATE INDEX IF NOT EXISTS focus_history_time ON ${schema}focus_history(user_id,ended_at);
 `;
 
 export function postgresOptions(databaseUrl, ca = process.env.DATABASE_SSL_CA) {

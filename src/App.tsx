@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import {
@@ -28,6 +28,7 @@ import {
   UserRound,
   KeyRound,
   X,
+  ChartNoAxesCombined,
 } from 'lucide-react';
 import { api, ApiError, SyncStore } from './store';
 import type { Category, Course, Task, User } from './types';
@@ -49,6 +50,10 @@ import Schedule from './Schedule';
 import CourseImport from './CourseImport';
 import CourseEditor from './CourseEditor';
 import Auth from './Auth';
+import SidebarSort, { inSavedOrder, NAVIGATION } from './SidebarSort';
+import { FocusStore } from './focusStore';
+import FocusExperience, { type FocusExperienceHandle } from './FocusExperience';
+import FocusAnalytics from './FocusAnalytics';
 
 type Panel =
   'categories' | 'semester' | 'data' | 'import' | 'account' | 'sync' | 'about' | 'courses' | null;
@@ -76,9 +81,13 @@ export default function App() {
   const store = useMemo(() => new SyncStore(user?.id || 'demo', !user), [user?.id]);
   const view = useSyncExternalStore(store.subscribe, store.getSnapshot);
   useEffect(() => store.start(), [store]);
+  const focusStore = useMemo(() => new FocusStore(user?.id || 'demo', !user), [user?.id]);
+  const focusView = useSyncExternalStore(focusStore.subscribe, focusStore.getSnapshot);
+  useEffect(() => focusStore.start(), [focusStore]);
+  const focusExperience = useRef<FocusExperienceHandle>(null);
   const data = view.data,
     settings = data.settings[0] || makeSettings();
-  const [page, setPage] = useState<'tasks' | 'schedule' | 'notes'>('tasks');
+  const [page, setPage] = useState<'tasks' | 'schedule' | 'notes' | 'focus'>('tasks');
   const [category, setCategory] = useState('all');
   const [completed, setCompleted] = useState(false);
   const [search, setSearch] = useState('');
@@ -176,6 +185,27 @@ export default function App() {
                 ? '正在同步'
                 : '保存待重试';
   const visibleCategory = data.categories.find((c) => c.id === category);
+  const navEntries = inSavedOrder(NAVIGATION, settings.sidebar?.navigation);
+  const categoryEntries = inSavedOrder(
+    [...data.categories.map((c) => ({ id: c.id, label: c.name })), { id: 'none', label: '未分类' }],
+    settings.sidebar?.categories,
+  );
+  const navIcons = {
+    tasks: LayoutList,
+    schedule: CalendarDays,
+    notes: NotebookPen,
+    focus: ChartNoAxesCombined,
+  };
+  function saveSidebar(kind: 'navigation' | 'categories', ids: string[]) {
+    run(() => {
+      const current = store.getSnapshot().data.settings[0];
+      if (!current) throw new Error('请等待同步完成。');
+      store.change('settings', 'main', {
+        ...stripEntity(current),
+        sidebar: { navigation: [], categories: [], ...current.sidebar, [kind]: ids },
+      });
+    });
+  }
   const schedule = (
     <Schedule
       key={store.userId}
@@ -227,22 +257,24 @@ export default function App() {
         </a>
         <div className="sidebar-caption">冒险地图</div>
         <nav className="main-nav" aria-label="主导航">
-          <button className={page === 'tasks' ? 'active' : ''} onClick={() => selectPage('tasks')}>
-            <LayoutList size={21} />
-            <span>我的待办</span>
-            <small>{activeTasks.length}</small>
-          </button>
-          <button
-            className={page === 'schedule' ? 'active' : ''}
-            onClick={() => selectPage('schedule')}
-          >
-            <CalendarDays size={21} />
-            <span>七日日程</span>
-          </button>
-          <button className={page === 'notes' ? 'active' : ''} onClick={() => selectPage('notes')}>
-            <NotebookPen size={21} />
-            <span>记事本</span>
-          </button>
+          <SidebarSort
+            items={navEntries}
+            disabled={!view.loaded}
+            onOrder={(ids) => saveSidebar('navigation', ids)}
+            render={(entry) => {
+              const Icon = navIcons[entry.id as keyof typeof navIcons];
+              return (
+                <button
+                  className={`nav-entry ${page === entry.id ? 'active' : ''}`}
+                  onClick={() => selectPage(entry.id as typeof page)}
+                >
+                  <Icon size={21} />
+                  <span>{entry.label}</span>
+                  {entry.id === 'tasks' && <small>{activeTasks.length}</small>}
+                </button>
+              );
+            }}
+          />
         </nav>
         <div className="sidebar-caption category-caption">
           <span>任务背包</span>
@@ -255,35 +287,52 @@ export default function App() {
           </button>
         </div>
         <nav className="category-nav" aria-label="任务分类">
-          {data.categories.map((c) => (
-            <button
-              key={c.id}
-              className={category === c.id && page === 'tasks' ? 'active' : ''}
-              onClick={() => filterCategory(c.id)}
-            >
-              <i className={`category-dot ${c.color}`} />
-              <span>{c.name}</span>
-              <small>{activeTasks.filter((t) => t.categoryId === c.id).length}</small>
-            </button>
-          ))}
-          <button
-            onClick={() => filterCategory('none')}
-            className={category === 'none' ? 'active' : ''}
-          >
-            <i className="category-dot slate" />
-            <span>未分类</span>
-          </button>
+          <SidebarSort
+            items={categoryEntries}
+            disabled={!view.loaded}
+            onOrder={(ids) => saveSidebar('categories', ids)}
+            render={(entry) => {
+              const c = data.categories.find((c) => c.id === entry.id);
+              return (
+                <button
+                  className={`category-entry ${category === entry.id && page === 'tasks' ? 'active' : ''}`}
+                  onClick={() => filterCategory(entry.id)}
+                >
+                  <i className={`category-dot ${c?.color || 'slate'}`} />
+                  <span>{entry.label}</span>
+                  <small>
+                    {
+                      activeTasks.filter((t) =>
+                        entry.id === 'none' ? !t.categoryId : t.categoryId === entry.id,
+                      ).length
+                    }
+                  </small>
+                </button>
+              );
+            }}
+          />
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-art">
-            <span className="little-spark spark-one">✧</span>
-            <Mascot size={88} />
-            <span className="little-spark spark-two">✦</span>
-            <p>
-              带上火把，
-              <br />
-              点亮下一段奇遇。
-            </p>
+          <div className="sidebar-art focus-sidebar-art">
+            <button
+              className="focus-fox-launch"
+              aria-label="点亮火把，开始专注"
+              disabled={checking || !focusView.loaded || focusView.busy || focusView.pending}
+              onClick={() => focusExperience.current?.launch()}
+            >
+              <span className="little-spark spark-one">✧</span>
+              <Mascot size={88} />
+              <span className="little-spark spark-two">✦</span>
+              <p>点亮火把，开始专注</p>
+            </button>
+            <button
+              className="focus-choice-button"
+              aria-label="选择专注时长"
+              title="选择专注时长"
+              onClick={() => focusExperience.current?.configure()}
+            >
+              <Settings2 size={15} />
+            </button>
           </div>
           <button className="sidebar-import" onClick={() => setPanel('import')}>
             <ImagePlus size={19} />
@@ -307,7 +356,13 @@ export default function App() {
           <div className="breadcrumb">
             我的空间 <ChevronRight size={14} />
             <span>
-              {page === 'tasks' ? '待办清单' : page === 'schedule' ? '七日日程' : '记事本'}
+              {page === 'tasks'
+                ? '待办清单'
+                : page === 'schedule'
+                  ? '七日日程'
+                  : page === 'focus'
+                    ? '专注分析'
+                    : '记事本'}
             </span>
           </div>
           <div className="topbar-right">
@@ -373,6 +428,15 @@ export default function App() {
               </button>
             </div>
           )}
+          <button
+            className="focus-mobile-entry"
+            disabled={checking || !focusView.loaded || focusView.busy || focusView.pending}
+            onClick={() => focusExperience.current?.launch()}
+          >
+            <Mascot size={35} />
+            <span>点亮火把，开始专注</span>
+            <ArrowRight size={16} />
+          </button>
           {page === 'tasks' && (
             <>
               <div className="page-intro">
@@ -567,7 +631,15 @@ export default function App() {
               </div>
             </>
           )}
-          <div hidden={page === 'notes'}>{schedule}</div>
+          {page === 'focus' && (
+            <FocusAnalytics
+              view={focusView}
+              onStart={() => focusExperience.current?.configure()}
+              onOpen={() => focusExperience.current?.open()}
+              onRetry={focusStore.retry}
+            />
+          )}
+          <div hidden={page === 'notes' || page === 'focus'}>{schedule}</div>
           <Notepad
             key={store.userId}
             store={store}
@@ -592,23 +664,34 @@ export default function App() {
           </footer>
         </main>
       </div>
-      <div className={`floating-island ${view.status === 'conflict' ? 'attention' : ''}`}>
-        <Mascot kind={nextTask?.mascot || 'star'} size={34} />
-        <span className="island-dot" />
-        <span className="island-task">{nextTask ? nextTask.title : '今天，也慢慢来'}</span>
-        <span className="island-time">
-          {nextTask ? countdown(nextTask.dueAt, now) : '给自己一点余量'}
-        </span>
-        <button aria-label="查看保存状态" title={statusLabel} onClick={() => setPanel('sync')}>
-          {view.status === 'error' || view.status === 'conflict' ? (
-            <AlertCircle size={17} />
-          ) : view.status === 'offline' ? (
-            <CloudOff size={17} />
-          ) : (
-            <Cloud size={17} />
-          )}
-        </button>
-      </div>
+      {!(focusView.data.profile.active || focusView.pending) && (
+        <div className={`floating-island ${view.status === 'conflict' ? 'attention' : ''}`}>
+          <Mascot kind={nextTask?.mascot || 'star'} size={34} />
+          <span className="island-dot" />
+          <span className="island-task">{nextTask ? nextTask.title : '今天，也慢慢来'}</span>
+          <span className="island-time">
+            {nextTask ? countdown(nextTask.dueAt, now) : '给自己一点余量'}
+          </span>
+          <button aria-label="查看保存状态" title={statusLabel} onClick={() => setPanel('sync')}>
+            {view.status === 'error' || view.status === 'conflict' ? (
+              <AlertCircle size={17} />
+            ) : view.status === 'offline' ? (
+              <CloudOff size={17} />
+            ) : (
+              <Cloud size={17} />
+            )}
+          </button>
+        </div>
+      )}
+      <FocusExperience
+        key={focusStore.userId}
+        ref={focusExperience}
+        store={focusStore}
+        view={focusView}
+        ready={!checking}
+        tasks={activeTasks}
+        onAnalytics={() => selectPage('focus')}
+      />
       {toast && (
         <div className="toast" role="status">
           <Check size={17} />

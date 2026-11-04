@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { schemas, changeSchema } from '../shared/validation.mjs';
 import { createDatabase } from './database.mjs';
 import { DEFAULT_FLAME } from '../shared/flame.mjs';
+import { installFocus } from './focus.mjs';
 
 const scrypt = promisify(scryptCallback);
 const hashToken = (token) => createHash('sha256').update(token).digest('hex');
@@ -46,6 +47,7 @@ export async function createApp({
   databaseUrl = process.env.DATABASE_URL,
   databaseSchema = 'qiyu',
   disableRateLimit = false,
+  focusNow = Date.now,
 } = {}) {
   const db = await createDatabase({ dataDir, databaseUrl, schema: databaseSchema });
   const app = express();
@@ -349,6 +351,14 @@ export async function createApp({
           'INSERT INTO entities VALUES (?,?,?,?,?) ON CONFLICT(user_id,collection,id) DO UPDATE SET data=excluded.data,version=excluded.version';
         for (const change of body.changes) {
           let data = change.data;
+          if (change.collection === 'settings' && data && !Object.hasOwn(data, 'sidebar')) {
+            const current = await c.get(
+              "SELECT data FROM entities WHERE user_id=? AND collection='settings' AND id='main'",
+              req.user.id,
+            );
+            const sidebar = current?.data ? JSON.parse(current.data).sidebar : null;
+            if (sidebar) data = { ...data, sidebar };
+          }
           if (change.collection === 'settings' && data && !Object.hasOwn(data, 'flame')) {
             const current = await c.get(
               "SELECT data FROM entities WHERE user_id=? AND collection='settings' AND id='main'",
@@ -410,6 +420,7 @@ export async function createApp({
       next(err);
     }
   });
+  installFocus(app, { db, requireAuth, limiter, now: focusNow });
   app.use('/api', (_req, res) => res.status(404).json({ error: '接口不存在。' }));
   app.use((err, _req, res, _next) => {
     if (err instanceof z.ZodError)

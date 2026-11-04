@@ -5,6 +5,7 @@ import { Field, Modal } from './ui';
 import { calendarExport, dateKey, download, stripEntity, uid } from './lib';
 import type { SyncStore } from './store';
 import { validateSnapshot } from '../shared/validation.mjs';
+import SidebarSort, { inSavedOrder, NAVIGATION } from './SidebarSort';
 export function CategoryManager({
   state,
   store,
@@ -39,40 +40,81 @@ export function CategoryManager({
       onClose={onClose}
     >
       <div className="category-manager">
-        {state.categories.map((category) => (
-          <div className="category-manager-row" key={category.id}>
-            <i className={`category-dot ${category.color}`} />
-            <strong>{category.name}</strong>
-            <span className="muted">
-              {state.tasks.filter((t) => t.categoryId === category.id).length} 件
-            </span>
-            <button
-              className="text-button"
-              onClick={() => {
-                setEditing(category);
-                setName(category.name);
-                setColor(category.color);
-              }}
-            >
-              改名 / 配色
-            </button>
-            <button
-              className="icon-button danger"
-              aria-label={`删除分类${category.name}`}
-              onClick={() => {
-                if (confirm(`删除“${category.name}”分类？任务会保留并移到未分类。`))
-                  try {
-                    store.change('categories', category.id, null);
-                  } catch (e) {
-                    setError((e as Error).message);
-                  }
-              }}
-            >
-              <Trash2 size={17} />
-            </button>
-          </div>
-        ))}
+        <p className="focus-help">拖动右侧手柄调整分类顺序，也可聚焦手柄后按上下方向键。</p>
+        <SidebarSort
+          items={inSavedOrder(state.categories, state.settings[0]?.sidebar?.categories).map(
+            (c) => ({ id: c.id, label: c.name }),
+          )}
+          onOrder={(ids) => {
+            try {
+              const current = store.getSnapshot().data.settings[0];
+              const order = [...ids];
+              const noneIndex = current.sidebar?.categories.indexOf('none') ?? -1;
+              order.splice(noneIndex < 0 ? ids.length : Math.min(noneIndex, ids.length), 0, 'none');
+              store.change('settings', 'main', {
+                ...stripEntity(current),
+                sidebar: { navigation: [], ...current.sidebar, categories: order },
+              });
+            } catch (e) {
+              setError((e as Error).message);
+            }
+          }}
+          render={(entry) => {
+            const category = state.categories.find((c) => c.id === entry.id)!;
+            return (
+              <div className="category-manager-row" key={category.id}>
+                <i className={`category-dot ${category.color}`} />
+                <strong>{category.name}</strong>
+                <span className="muted">
+                  {state.tasks.filter((t) => t.categoryId === category.id).length} 件
+                </span>
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setEditing(category);
+                    setName(category.name);
+                    setColor(category.color);
+                  }}
+                >
+                  改名 / 配色
+                </button>
+                <button
+                  className="icon-button danger"
+                  aria-label={`删除分类${category.name}`}
+                  onClick={() => {
+                    if (confirm(`删除“${category.name}”分类？任务会保留并移到未分类。`))
+                      try {
+                        store.change('categories', category.id, null);
+                      } catch (e) {
+                        setError((e as Error).message);
+                      }
+                  }}
+                >
+                  <Trash2 size={17} />
+                </button>
+              </div>
+            );
+          }}
+        />
       </div>
+      <details className="sidebar-nav-order">
+        <summary>调整冒险地图顺序</summary>
+        <SidebarSort
+          items={inSavedOrder(NAVIGATION, state.settings[0]?.sidebar?.navigation)}
+          onOrder={(ids) => {
+            try {
+              const current = store.getSnapshot().data.settings[0];
+              store.change('settings', 'main', {
+                ...stripEntity(current),
+                sidebar: { categories: [], ...current.sidebar, navigation: ids },
+              });
+            } catch (e) {
+              setError((e as Error).message);
+            }
+          }}
+          render={(entry) => <div className="nav-order-entry">{entry.label}</div>}
+        />
+      </details>
       <form onSubmit={save} className="form-stack category-form">
         <h3>{editing ? '修改分类' : '添加新分类'}</h3>
         <Field label="名称">

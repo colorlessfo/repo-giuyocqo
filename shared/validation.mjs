@@ -68,6 +68,18 @@ export const schemas = {
       )
       .min(1)
       .max(24),
+    sidebar: z
+      .object({
+        navigation: z.array(z.enum(['tasks', 'schedule', 'notes', 'focus'])).max(4),
+        categories: z.array(entityId).max(10000),
+      })
+      .refine(
+        (v) =>
+          new Set(v.navigation).size === v.navigation.length &&
+          new Set(v.categories).size === v.categories.length,
+        '排序中不能有重复项',
+      )
+      .optional(),
   }),
 };
 export const changeSchema = z.object({

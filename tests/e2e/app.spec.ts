@@ -1,7 +1,8 @@
 import { test as base, expect, type Page, type BrowserContext } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { createDatabase } from '../../server/database.mjs';
 
 const password = 'qiyu-test-password-2026';
 function shanghaiDay(offset = 0, clock = '12:00') {
@@ -65,6 +66,222 @@ async function waitForSaved(page: Page) {
     timeout: 15000,
   });
 }
+
+async function focusEndsSoon(page: Page) {
+  const user = (await (await page.request.get('/api/auth/me')).json()).user;
+  const profile = (await (await page.request.get('/api/focus')).json()).profile;
+  const ends = Date.now() + 2000;
+  Object.assign(profile.active, {
+    endsAt: ends,
+    runStartedAt: ends - profile.active.minutes * 60000,
+    startedAt: ends - profile.active.minutes * 60000,
+    segments: [],
+  });
+  profile.version++;
+  const databaseUrl = process.env.QIYU_TEST_DATABASE_URL_FILE
+    ? JSON.parse(await readFile(process.env.QIYU_TEST_DATABASE_URL_FILE, 'utf8')).url
+    : null;
+  const db = await createDatabase({ dataDir: '/tmp/qiyu-ddl-e2e', databaseUrl });
+  try {
+    await db.write(user.id, (c) =>
+      c.run('UPDATE focus_profiles SET data=? WHERE user_id=?', JSON.stringify(profile), user.id),
+    );
+  } finally {
+    await db.close();
+  }
+}
+
+test('focus fox transition, pause retry, refresh, completion and real charts synchronize privately', async ({
+  page,
+  context,
+  browser,
+}, testInfo) => {
+  const account = await register(context);
+  await page.goto('/');
+  await page.getByRole('button', { name: '点亮火把，开始专注', exact: true }).click();
+  await expect(page.locator('.focus-cinematic')).toBeVisible();
+  await page.waitForTimeout(1700);
+  await page.screenshot({ path: testInfo.outputPath('fox-torch-transition.png') });
+  await page.getByRole('button', { name: '跳过动画', exact: true }).click();
+  await expect(page.getByRole('timer')).toBeVisible();
+  const seconds = (clock: string) => {
+    const [m, s] = clock.split(':').map(Number);
+    return m * 60 + s;
+  };
+  const firstRemaining = seconds((await page.getByRole('timer').textContent())!);
+  await expect
+    .poll(async () => seconds((await page.getByRole('timer').textContent())!))
+    .toBeLessThan(firstRemaining);
+  let dropped = false;
+  await page.route('**/api/focus/action', async (route) => {
+    if (route.request().postDataJSON().type === 'pause' && !dropped) {
+      dropped = true;
+      await route.fetch();
+      await route.abort('failed');
+    } else await route.continue();
+  });
+  await page.getByRole('button', { name: '暂停休息', exact: true }).click();
+  await expect
+    .poll(async () => (await (await page.request.get('/api/focus')).json()).profile.active.status)
+    .toBe('paused');
+  await page.reload();
+  await page.getByRole('button', { name: '打开专注计时器', exact: true }).click();
+  await expect(page.getByRole('button', { name: '继续专注', exact: true })).toBeEnabled();
+  const clock = await page.getByRole('timer').textContent();
+  await page.waitForTimeout(1100);
+  expect(await page.getByRole('timer').textContent()).toBe(clock);
+  await page.getByRole('button', { name: '继续专注', exact: true }).click();
+  await expect(page.getByRole('button', { name: '暂停休息', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '收起计时器', exact: true }).click();
+  const miniFirst = seconds((await page.locator('.focus-island-open b').textContent())!);
+  await expect
+    .poll(async () => seconds((await page.locator('.focus-island-open b').textContent())!))
+    .toBeLessThan(miniFirst);
+  await page.getByRole('button', { name: '打开专注计时器', exact: true }).click();
+  const other = await browser.newContext({
+    baseURL: 'http://127.0.0.1:3100',
+    locale: 'zh-CN',
+    timezoneId: 'Asia/Shanghai',
+  });
+  try {
+    await other.request.post('/api/auth/login', { data: { account, password } });
+    const remote = await (await other.request.get('/api/focus')).json();
+    expect(remote.profile.active.status).toBe('running');
+    await focusEndsSoon(page);
+    await page.reload();
+    await page.getByRole('button', { name: '专注分析', exact: true }).click();
+    await expect
+      .poll(
+        async () => (await (await page.request.get('/api/focus')).json()).stats.completedSessions,
+      )
+      .toBe(1);
+    await expect(page.locator('.focus-metrics')).toContainText('25 分钟');
+    await expect(page.locator('.focus-metrics')).toContainText('1 段');
+    await expect(page.locator('.focus-records li')).toHaveCount(1);
+    await expect(page.locator('.focus-record-status')).toHaveText('已完成');
+    const reflected = await (await other.request.get('/api/focus')).json();
+    expect(reflected.records).toHaveLength(1);
+    expect(reflected.stats.totalMs).toBe(25 * 60000);
+    await register(other);
+    const privateState = await (await other.request.get('/api/focus')).json();
+    expect(privateState.stats.totalMs).toBe(0);
+    expect(privateState.records).toHaveLength(0);
+  } finally {
+    await other.close();
+  }
+  await page.screenshot({ path: testInfo.outputPath('focus-analysis.png'), fullPage: true });
+  await page.getByRole('button', { name: '30 天', exact: true }).click();
+  await expect(
+    page.getByRole('group', { name: '每日专注时长柱状图' }).getByRole('button'),
+  ).toHaveCount(30);
+  await page.getByText('查看每日数据明细', { exact: true }).click();
+  await expect(page.locator('.focus-data-details table')).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBeTruthy();
+});
+
+test('sidebar categories drag with mouse or touch, navigation uses keyboard and orders survive devices', async ({
+  page,
+  context,
+  browser,
+}, testInfo) => {
+  const account = await register(context);
+  await page.goto('/');
+  await waitForSaved(page);
+  await page.getByRole('button', { name: '编辑分类', exact: true }).click();
+  const rows = page.locator('.category-manager .sidebar-sort-row');
+  const before = await rows.evaluateAll((nodes) =>
+    nodes.map((node) => node.getAttribute('data-sort-id')),
+  );
+  const from = await rows.first().locator('.sidebar-sort-handle').boundingBox(),
+    to = await rows.last().locator('.sidebar-sort-handle').boundingBox();
+  expect(from && to).toBeTruthy();
+  if (testInfo.project.name === 'mobile') {
+    const cdp = await context.newCDPSession(page);
+    const x = from!.x + from!.width / 2,
+      y = from!.y + from!.height / 2,
+      end = to!.y + to!.height / 2;
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    for (let i = 1; i <= 12; i++) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x, y: y + ((end - y) * i) / 12 }],
+      });
+      await page.waitForTimeout(20);
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+  } else {
+    await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to!.x + to!.width / 2, to!.y + to!.height / 2, { steps: 15 });
+    await page.mouse.up();
+  }
+  const expected = [...before.slice(1), before[0]];
+  await expect
+    .poll(
+      async () =>
+        await rows.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-sort-id'))),
+    )
+    .toEqual(expected);
+  await page.getByText('调整冒险地图顺序', { exact: true }).click();
+  const nav = page.locator('.sidebar-nav-order');
+  await nav.getByRole('button', { name: '拖动专注分析排序', exact: true }).focus();
+  await page.keyboard.press('ArrowUp');
+  await waitForSaved(page);
+  const saved = (await state(page)).settings[0].sidebar;
+  expect(saved.navigation).toEqual(['tasks', 'schedule', 'focus', 'notes']);
+  expect(saved.categories.filter((id: string) => id !== 'none')).toEqual(expected);
+  await page.reload();
+  await waitForSaved(page);
+  expect(
+    await page
+      .locator('.main-nav .sidebar-sort-row')
+      .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-sort-id'))),
+  ).toEqual(saved.navigation);
+  const other = await browser.newContext({ baseURL: 'http://127.0.0.1:3100' });
+  try {
+    await other.request.post('/api/auth/login', { data: { account, password } });
+    expect((await (await other.request.get('/api/state')).json()).settings[0].sidebar).toEqual(
+      saved,
+    );
+  } finally {
+    await other.close();
+  }
+});
+
+test('white stars visibly twinkle and respect reduced motion', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('qiyu-night-effects', 'on'));
+  await page.goto('/');
+  const canvas = page.locator('.random-starfield');
+  const sample = () =>
+    canvas.evaluate((el: HTMLCanvasElement) => {
+      const pixels = el.getContext('2d')!.getImageData(0, 0, el.width, el.height).data;
+      let hash = 0,
+        white = 0,
+        colored = 0;
+      for (let i = 0; i < pixels.length; i += 4) {
+        hash = (Math.imul(hash, 31) + pixels[i + 3]) | 0;
+        if (pixels[i + 3] > 40) {
+          white++;
+          if (pixels[i] !== pixels[i + 1] || pixels[i + 1] !== pixels[i + 2]) colored++;
+        }
+      }
+      return { hash, white, colored };
+    });
+  await expect.poll(async () => (await sample()).white).toBeGreaterThan(100);
+  const first = await sample();
+  await page.waitForTimeout(1100);
+  const second = await sample();
+  expect(second.hash).not.toBe(first.hash);
+  expect(second.colored).toBe(0);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.waitForTimeout(200);
+  const frozen = await sample();
+  await page.waitForTimeout(700);
+  expect((await sample()).hash).toBe(frozen.hash);
+});
 
 test('white random sky has varied brightness, no repeating layout, and remains stable across page navigation', async ({
   page,

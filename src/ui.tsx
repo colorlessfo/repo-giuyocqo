@@ -9,12 +9,14 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  minimal = false,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  minimal?: boolean;
 }) {
   return (
     <Dialog.Root
@@ -31,13 +33,13 @@ export function Modal({
             if (matchMedia('(max-width: 600px)').matches) event.preventDefault();
           }}
         >
-          <div className="modal-heading">
-            <Dialog.Title>{title}</Dialog.Title>
+          <div className={`modal-heading ${minimal ? 'modal-heading-minimal' : ''}`}>
+            <Dialog.Title className={minimal ? 'sr-only' : undefined}>{title}</Dialog.Title>
             <Dialog.Close className="icon-button" aria-label="关闭弹窗">
               <X size={22} />
             </Dialog.Close>
           </div>
-          <Dialog.Description className="muted modal-description">
+          <Dialog.Description className={minimal ? 'sr-only' : 'muted modal-description'}>
             {description || '在这里编辑并保存你的安排。'}
           </Dialog.Description>
           {children}
@@ -80,7 +82,9 @@ export function Mascot({
     >
       <ellipse cx="42" cy="80" rx="29" ry="4" fill="#000" opacity=".3" />
       <g className="mascot-body">
-        <path d="M24 48H56V72H60V80H44V72H36V80H20V72H24Z" fill={fur} />
+        <path d="M24 48H56V72H24Z" fill={fur} />
+        <path className="mascot-leg mascot-leg-back" d="M20 72H36V80H20Z" fill={fur} />
+        <path className="mascot-leg mascot-leg-front" d="M44 72H60V80H44Z" fill={fur} />
         <path d="M32 52H48V68H32Z" fill={light} />
         {fox && <path d="M24 60H12V56H4V68H8V76H24Z" fill={fur} />}
         {fox && <path d="M4 56H12V68H4Z" fill="#ffe6bc" />}
